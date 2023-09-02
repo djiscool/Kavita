@@ -560,6 +560,13 @@ export class ActionFactoryService {
         requiresAdmin: false,
         children: [],
       },
+      {
+        action: Action.Delete,
+        title: 'Delete',
+        callback: this.dummyCallback,
+        requiresAdmin: true,
+        children: [],
+      }
     ];
 
     this.readingListActions = [

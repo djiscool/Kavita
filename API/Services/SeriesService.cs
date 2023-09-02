@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -54,6 +54,7 @@ public class SeriesService : ISeriesService
     private readonly ILogger<SeriesService> _logger;
     private readonly IScrobblingService _scrobblingService;
     private readonly ILocalizationService _localizationService;
+    private readonly IDirectoryService _directoryService;
 
     private readonly NextExpectedChapterDto _emptyExpectedChapter = new NextExpectedChapterDto
     {
@@ -71,6 +72,7 @@ public class SeriesService : ISeriesService
         _logger = logger;
         _scrobblingService = scrobblingService;
         _localizationService = localizationService;
+        _directoryService = directoryService;
     }
 
     /// <summary>
@@ -392,6 +394,21 @@ public class SeriesService : ISeriesService
 
             foreach (var s in series)
             {
+                // can delete a whole series here?
+                if (Directory.Exists(s.FolderPath)) {
+                    var files = Directory.GetFiles(s.FolderPath);
+                    _directoryService.DeleteFiles(files);
+
+                    try
+                    {
+                        Directory.Delete(s.FolderPath, true);
+                    }
+                    catch (Exception e)
+                    {
+                        _logger.LogError(e, "There was an exception deleting directory");
+                    }
+            }
+
                 await _eventHub.SendMessageAsync(MessageFactory.SeriesRemoved,
                     MessageFactory.SeriesRemovedEvent(s.Id, s.Name, s.LibraryId), false);
             }

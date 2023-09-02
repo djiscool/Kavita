@@ -617,7 +617,7 @@ export class ActionService implements OnDestroy {
   }
 
   async deleteSeries(series: Series, callback?: BooleanActionCallback) {
-    if (!await this.confirmService.confirm(translate('toasts.confirm-delete-series'))) {
+    if (!await this.confirmService.confirm('Are you sure you want to delete this series? It will delete the files on disk.')) {
       if (callback) {
         callback(false);
       }
