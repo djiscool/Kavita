@@ -4,14 +4,30 @@ publish to unraid
 run just the api
 
 docker build instructions:
-3. Install the required Node Packages
-    - cd Kavita/UI/Web
-    - `npm install`
-    - `npm install -g @angular/cli`
-5. Build the project in Visual Studio/Rider, Setting startup project to `API`
-4. Start angular server `ng serve`
-6. Debug the project in Visual Studio/Rider
-7. Open http://localhost:4200
+Tools required
+
+    Visual Studio 2019 or higher (https://www.visualstudio.com/vs/). The community version is free and works fine. Download it here.
+    Rider (optional to Visual Studio, preferred editor) (https://www.jetbrains.com/rider/)
+    HTML/Javascript editor of choice (VS Code/Sublime Text/Webstorm/Atom/etc)
+    Git
+    NodeJS (Node 18.13.X or higher)
+    .NET 8.0+
+    dotnet tool install -g --version 6.5.0 Swashbuckle.AspNetCore.Cli
+	Docker
+
+Getting started
+
+    cd Kavita/UI/Web
+    npm install
+    npm install -g @angular/cli
+
+Start the frontend
+
+    npm run start
+
+Build the project in Visual Studio/Rider, Setting startup project to API
+Debug the project in Visual Studio/Rider
+Open http://localhost:4200
 8. (Deployment only) Run build.sh and pass the Runtime Identifier for your OS or just build.sh for all supported RIDs.
 	"./build.sh linux-x64"
 9. run "docker build -t djiscool/kavitatest ."
