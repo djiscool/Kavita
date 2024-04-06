@@ -1,0 +1,32 @@
+publish to unraid
+
+(when testing if can't get to create first user make sure in solution mode. change debug mode from iis express to api
+run just the api
+
+docker build instructions:
+3. Install the required Node Packages
+    - cd Kavita/UI/Web
+    - `npm install`
+    - `npm install -g @angular/cli`
+5. Build the project in Visual Studio/Rider, Setting startup project to `API`
+4. Start angular server `ng serve`
+6. Debug the project in Visual Studio/Rider
+7. Open http://localhost:4200
+8. (Deployment only) Run build.sh and pass the Runtime Identifier for your OS or just build.sh for all supported RIDs.
+	"./build.sh linux-x64"
+9. run "docker build -t djiscool/kavitatest ."
+10. push to dockerhub
+
+11. in unraid go to docker tab, and scroll to bottom
+	- add container
+	- set repository = djiscool/kavitatest
+	- set docker hub url = https://hub.docker.com/repository/docker/djiscool/kavitatest
+	- create a new port "Web App Port" 
+		- container port = 5000
+		- host port whatever you want
+	- create a new path "Data Directory:
+		- container path = /kavita/config
+		- host path whatever you want
+	- create a new path "Book Library"
+		- container path = /library
+		- host path whatever you want
