@@ -35,6 +35,7 @@ export class BulkAddToCollectionComponent implements OnInit, AfterViewInit {
   private readonly collectionService = inject(CollectionTagService);
   private readonly toastr = inject(ToastrService);
   private readonly cdRef = inject(ChangeDetectorRef);
+  protected readonly MaxItems = 8;
 
   @Input({required: true}) title!: string;
   /**
@@ -48,6 +49,7 @@ export class BulkAddToCollectionComponent implements OnInit, AfterViewInit {
    */
   lists: Array<UserCollection> = [];
   loading: boolean = false;
+  isCreating: boolean = false;
   listForm: FormGroup = new FormGroup({});
 
   ngOnInit(): void {
@@ -77,9 +79,13 @@ export class BulkAddToCollectionComponent implements OnInit, AfterViewInit {
   }
 
   create() {
+    if (this.isCreating) return;
     const tagName = this.listForm.value.title;
+    this.isCreating = true;
+    this.cdRef.markForCheck();
     this.collectionService.addByMultiple(0, this.seriesIds, tagName).subscribe(() => {
       this.toastr.success(translate('toasts.series-added-to-collection', {collectionName: tagName}));
+      this.isCreating = false;
       this.modal.close();
     });
   }

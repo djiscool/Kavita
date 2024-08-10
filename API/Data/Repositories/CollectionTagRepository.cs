@@ -4,12 +4,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using API.Data.Misc;
 using API.DTOs.Collection;
-using API.DTOs.CollectionTags;
 using API.Entities;
 using API.Entities.Enums;
 using API.Extensions;
 using API.Extensions.QueryExtensions;
 using API.Extensions.QueryExtensions.Filtering;
+using API.Services.Plus;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Microsoft.EntityFrameworkCore;
@@ -58,6 +58,7 @@ public interface ICollectionTagRepository
     Task<IList<AppUserCollection>> GetCollectionsForUserAsync(int userId, CollectionIncludes includes = CollectionIncludes.None);
     Task UpdateCollectionAgeRating(AppUserCollection tag);
     Task<IEnumerable<AppUserCollection>> GetCollectionsByIds(IEnumerable<int> tags, CollectionIncludes includes = CollectionIncludes.None);
+    Task<IList<AppUserCollection>> GetAllCollectionsForSyncing(DateTime expirationTime);
 }
 public class CollectionTagRepository : ICollectionTagRepository
 {
@@ -143,14 +144,6 @@ public class CollectionTagRepository : ICollectionTagRepository
             .ToListAsync();
     }
 
-    [Obsolete("use TagExists with userId")]
-    public async Task<bool> TagExists(string title)
-    {
-        var normalized = title.ToNormalized();
-        return await _context.CollectionTag
-            .AnyAsync(x => x.NormalizedTitle != null && x.NormalizedTitle.Equals(normalized));
-    }
-
     /// <summary>
     /// If any tag exists for that given user's collections
     /// </summary>
@@ -176,10 +169,9 @@ public class CollectionTagRepository : ICollectionTagRepository
     public async Task<IList<string>> GetRandomCoverImagesAsync(int collectionId)
     {
         var random = new Random();
-        var data = await _context.CollectionTag
+        var data = await _context.AppUserCollection
             .Where(t => t.Id == collectionId)
-            .SelectMany(t => t.SeriesMetadatas)
-            .Select(sm => sm.Series.CoverImage)
+            .SelectMany(uc => uc.Items.Select(series => series.CoverImage))
             .Where(t => !string.IsNullOrEmpty(t))
             .ToListAsync();
 
@@ -217,25 +209,13 @@ public class CollectionTagRepository : ICollectionTagRepository
             .ToListAsync();
     }
 
-    public async Task<IEnumerable<CollectionTagDto>> GetAllTagDtosAsync()
+    public async Task<IList<AppUserCollection>> GetAllCollectionsForSyncing(DateTime expirationTime)
     {
-
-        return await _context.CollectionTag
-            .OrderBy(c => c.NormalizedTitle)
-            .AsNoTracking()
-            .ProjectTo<CollectionTagDto>(_mapper.ConfigurationProvider)
-            .ToListAsync();
-    }
-
-    public async Task<IEnumerable<CollectionTagDto>> GetAllPromotedTagDtosAsync(int userId)
-    {
-        var userRating = await GetUserAgeRestriction(userId);
-        return await _context.CollectionTag
-            .Where(c => c.Promoted)
-            .RestrictAgainstAgeRestriction(userRating)
-            .OrderBy(c => c.NormalizedTitle)
-            .AsNoTracking()
-            .ProjectTo<CollectionTagDto>(_mapper.ConfigurationProvider)
+        return await _context.AppUserCollection
+            .Where(c => c.Source == ScrobbleProvider.Mal)
+            .Where(c => c.LastSyncUtc <= expirationTime)
+            .Include(c => c.Items)
+            .AsSplitQuery()
             .ToListAsync();
     }
 

@@ -496,7 +496,7 @@ public class SeriesService : ISeriesService
             specials.Add(chapter);
         }
 
-        // Don't show chapter 0 (aka single volume chapters) in the Chapters tab or books that are just single numbers (they show as volumes)
+        // Don't show chapter -100000 (aka single volume chapters) in the Chapters tab or books that are just single numbers (they show as volumes)
         IEnumerable<ChapterDto> retChapters = bookTreatment ? Array.Empty<ChapterDto>() : chapters.Where(ShouldIncludeChapter);
 
         var storylineChapters = volumes
@@ -518,6 +518,7 @@ public class SeriesService : ISeriesService
             StorylineChapters = storylineChapters,
             TotalCount = chapters.Count,
             UnreadCount = chapters.Count(c => c.Pages > 0 && c.PagesRead < c.Pages),
+            // TODO: See if we can get the ContinueFrom here
         };
     }
 

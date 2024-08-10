@@ -10,7 +10,7 @@ import { Volume } from '../_models/volume';
 import { AccountService } from './account.service';
 import { DeviceService } from './device.service';
 import {SideNavStream} from "../_models/sidenav/sidenav-stream";
-import {User} from "../_models/user";
+import {SmartFilter} from "../_models/metadata/v2/smart-filter";
 
 export enum Action {
   Submenu = -1,
@@ -102,7 +102,11 @@ export enum Action {
    * Promotes the underlying item (Reading List, Collection)
    */
   Promote = 24,
-  UnPromote = 25
+  UnPromote = 25,
+  /**
+   * Invoke a refresh covers as false to generate colorscapes
+   */
+  GenerateColorScape = 26,
 }
 
 /**
@@ -151,6 +155,7 @@ export class ActionFactoryService {
   bookmarkActions: Array<ActionItem<Series>> = [];
 
   sideNavStreamActions: Array<ActionItem<SideNavStream>> = [];
+  smartFilterActions: Array<ActionItem<SmartFilter>> = [];
 
   isAdmin = false;
 
@@ -177,6 +182,10 @@ export class ActionFactoryService {
 
   getSideNavStreamActions(callback: ActionCallback<SideNavStream>) {
     return this.applyCallbackToList(this.sideNavStreamActions, callback);
+  }
+
+  getSmartFilterActions(callback: ActionCallback<SmartFilter>) {
+    return this.applyCallbackToList(this.smartFilterActions, callback);
   }
 
   getVolumeActions(callback: ActionCallback<Volume>) {
@@ -236,6 +245,13 @@ export class ActionFactoryService {
           {
             action: Action.RefreshMetadata,
             title: 'refresh-covers',
+            callback: this.dummyCallback,
+            requiresAdmin: true,
+            children: [],
+          },
+          {
+            action: Action.GenerateColorScape,
+            title: 'generate-colorscape',
             callback: this.dummyCallback,
             requiresAdmin: true,
             children: [],
@@ -545,7 +561,7 @@ export class ActionFactoryService {
           }
         ],
       },
-      // RBS will handle rendering this, so non-admins with download are appicable
+      // RBS will handle rendering this, so non-admins with download are applicable
       {
         action: Action.Download,
         title: 'download',
@@ -583,6 +599,20 @@ export class ActionFactoryService {
         callback: this.dummyCallback,
         requiresAdmin: false,
         class: 'danger',
+        children: [],
+      },
+      {
+        action: Action.Promote,
+        title: 'promote',
+        callback: this.dummyCallback,
+        requiresAdmin: false,
+        children: [],
+      },
+      {
+        action: Action.UnPromote,
+        title: 'unpromote',
+        callback: this.dummyCallback,
+        requiresAdmin: false,
         children: [],
       },
     ];
@@ -623,6 +653,16 @@ export class ActionFactoryService {
       {
         action: Action.MarkAsInvisible,
         title: 'mark-invisible',
+        callback: this.dummyCallback,
+        requiresAdmin: false,
+        children: [],
+      },
+    ];
+
+    this.smartFilterActions = [
+      {
+        action: Action.Delete,
+        title: 'delete',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],

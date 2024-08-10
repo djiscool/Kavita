@@ -596,18 +596,16 @@ public class DirectoryService : IDirectoryService
     /// <returns></returns>
     public string? FindLowestDirectoriesFromFiles(IEnumerable<string> libraryFolders, IList<string> filePaths)
     {
-
-
-        var stopLookingForDirectories = false;
         var dirs = new Dictionary<string, string>();
-        foreach (var folder in libraryFolders.Select(Tasks.Scanner.Parser.Parser.NormalizePath))
+        var normalizedFilePaths = filePaths.Select(Parser.NormalizePath).ToList();
+
+        foreach (var folder in libraryFolders.Select(Parser.NormalizePath))
         {
-            if (stopLookingForDirectories) break;
-            foreach (var file in filePaths.Select(Tasks.Scanner.Parser.Parser.NormalizePath))
+            foreach (var file in normalizedFilePaths)
             {
                 if (!file.Contains(folder)) continue;
 
-                var lowestPath =   Path.GetDirectoryName(file)?.Replace(folder, string.Empty);
+                var lowestPath =   Path.GetDirectoryName(file);
                 if (!string.IsNullOrEmpty(lowestPath))
                 {
                     dirs.TryAdd(Parser.NormalizePath(lowestPath), string.Empty);
@@ -619,8 +617,16 @@ public class DirectoryService : IDirectoryService
         if (dirs.Keys.Count == 1) return dirs.Keys.First();
         if (dirs.Keys.Count > 1)
         {
-            return dirs.Keys.Last();
+            // For each key, validate that each file exists in the key path
+            foreach (var folder in dirs.Keys)
+            {
+                if (normalizedFilePaths.TrueForAll(filePath => filePath.Contains(Parser.NormalizePath(folder))))
+                {
+                    return folder;
+                }
+            }
         }
+
         return null;
     }
 
@@ -739,12 +745,12 @@ public class DirectoryService : IDirectoryService
     /// <summary>
     /// Recursively scans a folder and returns the max last write time on any folders and files
     /// </summary>
-    /// <remarks>If the folder is empty, this will return MaxValue for a DateTime</remarks>
+    /// <remarks>If the folder is empty or non-existant, this will return MaxValue for a DateTime</remarks>
     /// <param name="folderPath"></param>
     /// <returns>Max Last Write Time</returns>
     public DateTime GetLastWriteTime(string folderPath)
     {
-        if (!FileSystem.Directory.Exists(folderPath)) throw new IOException($"{folderPath} does not exist");
+        if (!FileSystem.Directory.Exists(folderPath)) return DateTime.MaxValue;
         var fileEntries = FileSystem.Directory.GetFileSystemEntries(folderPath, "*.*", SearchOption.AllDirectories);
         if (fileEntries.Length == 0) return DateTime.MaxValue;
         return fileEntries.Max(path => FileSystem.File.GetLastWriteTime(path));

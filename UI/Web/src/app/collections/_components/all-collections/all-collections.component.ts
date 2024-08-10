@@ -41,6 +41,7 @@ import {BulkSelectionService} from "../../../cards/bulk-selection.service";
 import {SeriesCardComponent} from "../../../cards/series-card/series-card.component";
 import {ActionService} from "../../../_services/action.service";
 import {KEY_CODES} from "../../../shared/_services/utility.service";
+import {WikiLink} from "../../../_models/wiki";
 
 
 @Component({
@@ -69,14 +70,14 @@ export class AllCollectionsComponent implements OnInit {
   public readonly actionService = inject(ActionService);
 
   protected readonly ScrobbleProvider = ScrobbleProvider;
+  protected readonly WikiLink = WikiLink;
 
   isLoading: boolean = true;
   collections: UserCollection[] = [];
   collectionTagActions: ActionItem<UserCollection>[] = [];
   jumpbarKeys: Array<JumpKey> = [];
-  isAdmin$: Observable<boolean> = of(false);
   filterOpen: EventEmitter<boolean> = new EventEmitter();
-  trackByIdentity = (index: number, item: UserCollection) => `${item.id}_${item.title}`;
+  trackByIdentity = (index: number, item: UserCollection) => `${item.id}_${item.title}_${item.owner}_${item.promoted}`;
   user!: User;
 
   @HostListener('document:keydown.shift', ['$event'])
@@ -114,12 +115,6 @@ export class AllCollectionsComponent implements OnInit {
         .filter(action => this.collectionService.actionListFilter(action, user));
       this.cdRef.markForCheck();
     });
-
-
-    this.isAdmin$ = this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef), map(user => {
-      if (!user) return false;
-      return this.accountService.hasAdminRole(user);
-    }));
   }
 
   loadCollection(item: UserCollection) {
@@ -146,13 +141,14 @@ export class AllCollectionsComponent implements OnInit {
 
     switch (action.action) {
       case Action.Promote:
-        this.collectionService.promoteMultipleCollections([collectionTag.id], true).subscribe();
+        this.collectionService.promoteMultipleCollections([collectionTag.id], true).subscribe(_ => this.loadPage());
         break;
       case Action.UnPromote:
-        this.collectionService.promoteMultipleCollections([collectionTag.id], false).subscribe();
+        this.collectionService.promoteMultipleCollections([collectionTag.id], false).subscribe(_ => this.loadPage());
         break;
       case(Action.Delete):
         this.collectionService.deleteTag(collectionTag.id).subscribe(res => {
+          this.loadPage();
           this.toastr.success(res);
         });
         break;

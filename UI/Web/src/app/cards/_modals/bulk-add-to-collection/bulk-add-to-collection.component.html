@@ -6,7 +6,7 @@
   </div>
   <form style="width: 100%" [formGroup]="listForm">
     <div class="modal-body">
-      @if (lists.length >= 5) {
+      @if (lists.length >= MaxItems) {
         <div class="mb-3">
           <label for="filter" class="form-label">{{t('filter-label')}}</label>
           <div class="input-group">
@@ -47,7 +47,7 @@
             <input width="100%" #title ngbAutofocus type="text" class="form-control mb-2" id="add-rlist" formControlName="title">
           </div>
           <div class="col-2">
-            <button type="submit" class="btn btn-primary" (click)="create()">{{t('create')}}</button>
+            <button type="submit" class="btn btn-primary" [disabled]="isCreating" (click)="create()">{{t('create')}}</button>
           </div>
         </div>
       </div>

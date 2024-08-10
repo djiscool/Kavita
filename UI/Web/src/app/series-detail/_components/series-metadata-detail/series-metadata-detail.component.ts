@@ -94,7 +94,7 @@ export class SeriesMetadataDetailComponent implements OnChanges, OnInit {
 
   ngOnInit() {
     // If on desktop, we can just have all the data expanded by default:
-    this.isCollapsed = this.utilityService.getActiveBreakpoint() < Breakpoint.Desktop;
+    this.isCollapsed = true; // this.utilityService.getActiveBreakpoint() < Breakpoint.Desktop;
     // Check if there is a lot of extended data, if so, re-collapse
     const sum = (this.seriesMetadata.colorists.length + this.seriesMetadata.editors.length
       + this.seriesMetadata.coverArtists.length + this.seriesMetadata.inkers.length
@@ -114,9 +114,6 @@ export class SeriesMetadataDetailComponent implements OnChanges, OnInit {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-
-
-
     this.hasExtendedProperties = this.seriesMetadata.colorists.length > 0 ||
                                   this.seriesMetadata.editors.length > 0 ||
                                   this.seriesMetadata.coverArtists.length > 0 ||

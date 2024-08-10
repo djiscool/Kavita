@@ -43,11 +43,12 @@
       (pdfLoaded)="updateLoading(false)"
       (progress)="updateLoadProgress($event)"
       (zoomChange)="calcScrollbarNeeded()"
+      (handToolChange)="updateHandTool($event)"
     >
 
     </ngx-extended-pdf-viewer>
 
-    @if (scrollMode === ScrollModeType.page) {
+    @if (scrollMode === ScrollModeType.page && !isLoading) {
       <div class="left" (click)="prevPage()"></div>
       <div class="{{scrollbarNeeded ? 'right-with-scrollbar' : 'right'}}" (click)="nextPage()"></div>
     }
@@ -56,7 +57,7 @@
       <div style="min-height: 36px" id="toolbarViewer" [ngStyle]="{'background-color': backgroundColor, 'color': fontColor}">
         <div id="toolbarViewerLeft">
           <pdf-toggle-sidebar></pdf-toggle-sidebar>
-          <pdf-find-button></pdf-find-button>
+          <pdf-find-button [textLayer]='true'></pdf-find-button>
           <pdf-paging-area></pdf-paging-area>
 
           @if (utilityService.getActiveBreakpoint() > Breakpoint.Mobile) {
@@ -77,9 +78,7 @@
           </button>
         </div>
 
-        @if (utilityService.getActiveBreakpoint() > Breakpoint.Tablet) {
-          <pdf-zoom-toolbar ></pdf-zoom-toolbar>
-        }
+        <pdf-zoom-toolbar ></pdf-zoom-toolbar>
 
 
         <div id="toolbarViewerRight">
@@ -87,17 +86,17 @@
           <pdf-select-tool></pdf-select-tool>
           <pdf-presentation-mode></pdf-presentation-mode>
 
-
-          @if (utilityService.getActiveBreakpoint() > Breakpoint.Mobile) {
-            <button (click)="toggleBookPageMode()" class="btn-icon toolbarButton" [ngbTooltip]="pageLayoutMode | pdfLayoutMode" [disabled]="scrollMode === ScrollModeType.page">
-                <i class="toolbar-icon fa-solid {{this.pageLayoutMode !== 'book' ? 'fa-book' : 'fa-book-open'}}" [ngStyle]="{color: fontColor}" aria-hidden="true"></i>
-                <span class="visually-hidden">{{this.pageLayoutMode | pdfLayoutMode}}</span>
-            </button>
-          }
+<!-- The book mode is messy, not ready for prime time -->
+<!--          @if (utilityService.getActiveBreakpoint() > Breakpoint.Mobile) {-->
+<!--            <button (click)="toggleBookPageMode()" class="btn-icon toolbarButton" [ngbTooltip]="pageLayoutMode | pdfLayoutMode" [disabled]="scrollMode === ScrollModeType.page">-->
+<!--                <i class="toolbar-icon fa-solid {{this.pageLayoutMode !== 'book' ? 'fa-book' : 'fa-book-open'}}" [ngStyle]="{color: fontColor}" aria-hidden="true"></i>-->
+<!--                <span class="visually-hidden">{{this.pageLayoutMode | pdfLayoutMode}}</span>-->
+<!--            </button>-->
+<!--          }-->
 
 
           <!-- scroll mode should be disabled when book mode is used -->
-          <button (click)="toggleScrollMode()" class="btn-icon toolbarButton" [ngbTooltip]="scrollMode | pdfScrollMode" [disabled]="this.pageLayoutMode === 'book'">
+          <button (click)="toggleScrollMode()" class="btn-icon toolbarButton" [ngbTooltip]="scrollMode | pdfScrollModeType" [disabled]="this.pageLayoutMode === 'book'">
             @switch (scrollMode) {
               @case (ScrollModeType.vertical) {
                 <svg aria-hidden="true" [ngStyle]="{color: fontColor}" style="width: 24px; height: 24px; margin-top: 3px" viewBox="0 0 24 24"><path fill="currentColor" d="M9.5 4c1 0 1.5.5 1.5 1.5v5c0 1-.5 1.5-1.5 1.5h-3c-1 0-1.5-.5-1.5-1.5v-5C5 4.5 5.5 4 6.5 4zM11 0v.5c0 1-.5 1.5-1.5 1.5h-3C5.5 2 5 1.5 5 .5V0h6zM11 16v-.5c0-1-.5-1.5-1.5-1.5h-3c-1 0-1.5.5-1.5 1.5v.5h6z"></path></svg>
@@ -113,10 +112,10 @@
               }
             }
 
-            <span class="visually-hidden">{{scrollMode | pdfScrollMode}}</span>
+            <span class="visually-hidden">{{scrollMode | pdfScrollModeType}}</span>
           </button>
 
-          <button (click)="toggleSpreadMode()" class="btn-icon toolbarButton" [ngbTooltip]="spreadMode | pdfSpreadMode" [disabled]="this.pageLayoutMode === 'book'">
+          <button (click)="toggleSpreadMode()" class="btn-icon toolbarButton" [ngbTooltip]="spreadMode | pdfSpreadType" [disabled]="this.pageLayoutMode === 'book'">
 
             @switch (spreadMode) {
               @case ('off') {
@@ -130,7 +129,7 @@
               }
             }
 
-            <span class="visually-hidden">{{spreadMode | pdfSpreadMode}}</span>
+            <span class="visually-hidden">{{spreadMode | pdfSpreadType}}</span>
           </button>
 
 

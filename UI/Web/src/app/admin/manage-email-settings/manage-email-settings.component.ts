@@ -5,12 +5,17 @@ import {take} from 'rxjs';
 import {SettingsService} from '../settings.service';
 import {ServerSettings} from '../_models/server-settings';
 import {
+  NgbAlert,
   NgbTooltip
 } from '@ng-bootstrap/ng-bootstrap';
 import {NgIf, NgTemplateOutlet, TitleCasePipe} from '@angular/common';
 import {translate, TranslocoModule} from "@ngneat/transloco";
 import {SafeHtmlPipe} from "../../_pipes/safe-html.pipe";
-import {ManageAlertsComponent} from "../manage-alerts/manage-alerts.component";
+import {ManageMediaIssuesComponent} from "../manage-media-issues/manage-media-issues.component";
+import {SettingItemComponent} from "../../settings/_components/setting-item/setting-item.component";
+import {SettingSwitchComponent} from "../../settings/_components/setting-switch/setting-switch.component";
+import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
+import {BytesPipe} from "../../_pipes/bytes.pipe";
 
 @Component({
     selector: 'app-manage-email-settings',
@@ -19,7 +24,7 @@ import {ManageAlertsComponent} from "../manage-alerts/manage-alerts.component";
     standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgIf, ReactiveFormsModule, NgbTooltip, NgTemplateOutlet, TranslocoModule, SafeHtmlPipe,
-    ManageAlertsComponent, TitleCasePipe]
+    ManageMediaIssuesComponent, TitleCasePipe, NgbAlert, SettingItemComponent, SettingSwitchComponent, DefaultValuePipe, BytesPipe]
 })
 export class ManageEmailSettingsComponent implements OnInit {
 
@@ -70,6 +75,7 @@ export class ManageEmailSettingsComponent implements OnInit {
     this.settingsForm.get('port')?.setValue(587);
     this.settingsForm.get('sizeLimit')?.setValue(26214400);
     this.settingsForm.get('enableSsl')?.setValue(true);
+    this.settingsForm.markAsDirty();
     this.cdRef.markForCheck();
   }
 
@@ -78,6 +84,7 @@ export class ManageEmailSettingsComponent implements OnInit {
     this.settingsForm.get('port')?.setValue(587 );
     this.settingsForm.get('sizeLimit')?.setValue(1048576);
     this.settingsForm.get('enableSsl')?.setValue(true);
+    this.settingsForm.markAsDirty();
     this.cdRef.markForCheck();
   }
 
@@ -120,7 +127,7 @@ export class ManageEmailSettingsComponent implements OnInit {
       if (res.successful) {
         this.toastr.success(translate('toasts.email-sent', {email: res.emailAddress}));
       } else {
-        this.toastr.error(translate('toasts.email-not-sent-test'))
+        this.toastr.error(res.errorMessage);
       }
     });
   }

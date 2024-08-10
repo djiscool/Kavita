@@ -2,12 +2,12 @@
   "openapi": "3.0.1",
   "info": {
     "title": "Kavita",
-    "description": "Kavita provides a set of APIs that are authenticated by JWT. JWT token can be copied from local storage.",
+    "description": "Kavita provides a set of APIs that are authenticated by JWT. JWT token can be copied from local storage. Assume all fields of a payload are required. Built against v0.8.2.1",
     "license": {
       "name": "GPL-3.0",
       "url": "https://github.com/Kareadita/Kavita/blob/develop/LICENSE"
     },
-    "version": "0.7.14.12"
+    "version": "3.1.0"
   },
   "servers": [
     {
@@ -55,7 +55,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -88,7 +88,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -138,7 +138,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -168,7 +168,7 @@
         "summary": "Returns an up-to-date user account",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -218,7 +218,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -248,7 +248,7 @@
         "summary": "Get All Roles back. See API.Constants.PolicyConstants",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -288,7 +288,7 @@
         "description": "This will log unauthorized requests to Security log",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -338,7 +338,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -369,7 +369,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -402,7 +402,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -434,7 +434,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -484,7 +484,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -534,7 +534,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -585,7 +585,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -616,7 +616,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -656,7 +656,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -685,7 +685,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -733,7 +733,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -774,7 +774,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -804,7 +804,7 @@
         "summary": "Returns the OPDS url for this user",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -834,7 +834,7 @@
         "summary": "Is the user's current email valid or not",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -864,7 +864,7 @@
         "summary": "Checks if an admin exists on the system. This is essentially a check to validate if the system has been setup.",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -913,7 +913,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -956,7 +956,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1006,7 +1006,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1032,7 +1032,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1092,7 +1092,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1120,63 +1120,31 @@
           "Cbl"
         ],
         "summary": "The first step in a cbl import. This validates the cbl file that if an import occured, would it be successful.\r\nIf this returns errors, the cbl will always be rejected by Kavita.",
+        "parameters": [
+          {
+            "name": "comicVineMatching",
+            "in": "query",
+            "description": "Use comic vine matching or not. Defaults to false",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "properties": {
-                  "ContentType": {
-                    "type": "string"
-                  },
-                  "ContentDisposition": {
-                    "type": "string"
-                  },
-                  "Headers": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "Length": {
-                    "type": "integer",
-                    "format": "int64"
-                  },
-                  "Name": {
-                    "type": "string"
-                  },
-                  "FileName": {
-                    "type": "string"
-                  },
-                  "comicVineMatching": {
-                    "type": "boolean",
-                    "default": false
+                  "cbl": {
+                    "type": "string",
+                    "format": "binary"
                   }
                 }
               },
               "encoding": {
-                "ContentType": {
-                  "style": "form"
-                },
-                "ContentDisposition": {
-                  "style": "form"
-                },
-                "Headers": {
-                  "style": "form"
-                },
-                "Length": {
-                  "style": "form"
-                },
-                "Name": {
-                  "style": "form"
-                },
-                "FileName": {
-                  "style": "form"
-                },
-                "comicVineMatching": {
+                "cbl": {
                   "style": "form"
                 }
               }
@@ -1185,7 +1153,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1213,70 +1181,40 @@
           "Cbl"
         ],
         "summary": "Performs the actual import (assuming dryRun = false)",
+        "parameters": [
+          {
+            "name": "dryRun",
+            "in": "query",
+            "description": "If true, will only emulate the import but not perform. This should be done to preview what will happen",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "comicVineMatching",
+            "in": "query",
+            "description": "Use comic vine matching or not. Defaults to false",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "properties": {
-                  "ContentType": {
-                    "type": "string"
-                  },
-                  "ContentDisposition": {
-                    "type": "string"
-                  },
-                  "Headers": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "Length": {
-                    "type": "integer",
-                    "format": "int64"
-                  },
-                  "Name": {
-                    "type": "string"
-                  },
-                  "FileName": {
-                    "type": "string"
-                  },
-                  "dryRun": {
-                    "type": "boolean",
-                    "default": false
-                  },
-                  "comicVineMatching": {
-                    "type": "boolean",
-                    "default": false
+                  "cbl": {
+                    "type": "string",
+                    "format": "binary"
                   }
                 }
               },
               "encoding": {
-                "ContentType": {
-                  "style": "form"
-                },
-                "ContentDisposition": {
-                  "style": "form"
-                },
-                "Headers": {
-                  "style": "form"
-                },
-                "Length": {
-                  "style": "form"
-                },
-                "Name": {
-                  "style": "form"
-                },
-                "FileName": {
-                  "style": "form"
-                },
-                "dryRun": {
-                  "style": "form"
-                },
-                "comicVineMatching": {
+                "cbl": {
                   "style": "form"
                 }
               }
@@ -1285,7 +1223,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1325,7 +1263,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1373,7 +1311,57 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Collection/single": {
+      "get": {
+        "tags": [
+          "Collection"
+        ],
+        "summary": "Returns a single Collection tag by Id for a given user",
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AppUserCollectionDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AppUserCollectionDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AppUserCollectionDto"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1406,7 +1394,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1455,7 +1443,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1505,7 +1493,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1538,7 +1526,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1548,30 +1536,30 @@
         "tags": [
           "Collection"
         ],
-        "summary": "Promote/UnPromote multiple collections in one go",
+        "summary": "Delete multiple collections in one go",
         "requestBody": {
           "description": "",
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PromoteCollectionsDto"
+                "$ref": "#/components/schemas/DeleteCollectionsDto"
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/PromoteCollectionsDto"
+                "$ref": "#/components/schemas/DeleteCollectionsDto"
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/PromoteCollectionsDto"
+                "$ref": "#/components/schemas/DeleteCollectionsDto"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1604,7 +1592,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1637,7 +1625,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1650,7 +1638,7 @@
         "summary": "For the authenticated user, if they have an active Kavita+ subscription and a MAL username on record,\r\nfetch their Mal interest stacks (including restacks)",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1681,12 +1669,170 @@
         }
       }
     },
+    "/api/Collection/import-stack": {
+      "post": {
+        "tags": [
+          "Collection"
+        ],
+        "summary": "Imports a MAL Stack into Kavita",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MalStackDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MalStackDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/MalStackDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/ColorScape/series": {
+      "get": {
+        "tags": [
+          "ColorScape"
+        ],
+        "summary": "Returns the color scape for a series",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ColorScape/volume": {
+      "get": {
+        "tags": [
+          "ColorScape"
+        ],
+        "summary": "Returns the color scape for a volume",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ColorScape/chapter": {
+      "get": {
+        "tags": [
+          "ColorScape"
+        ],
+        "summary": "Returns the color scape for a chapter",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColorScapeDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/Device/create": {
       "post": {
         "tags": [
           "Device"
         ],
+        "summary": "Creates a new Device",
         "requestBody": {
+          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -1707,7 +1853,24 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDto"
+                }
+              }
+            }
           }
         }
       }
@@ -1717,7 +1880,9 @@
         "tags": [
           "Device"
         ],
+        "summary": "Updates an existing Device",
         "requestBody": {
+          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -1738,7 +1903,24 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDto"
+                }
+              }
+            }
           }
         }
       }
@@ -1762,7 +1944,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       },
@@ -1772,7 +1954,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1831,7 +2013,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1862,7 +2044,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -1886,7 +2068,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1930,7 +2112,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1974,7 +2156,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2018,7 +2200,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2042,7 +2224,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2064,7 +2246,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2097,7 +2279,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2130,7 +2312,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2142,7 +2324,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2188,7 +2370,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2221,7 +2403,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2271,7 +2453,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2300,7 +2482,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2331,7 +2513,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2362,7 +2544,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2393,7 +2575,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2424,7 +2606,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2455,7 +2637,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2486,7 +2668,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2528,7 +2710,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2558,7 +2740,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2588,7 +2770,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2621,7 +2803,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2644,7 +2826,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2693,7 +2875,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2723,7 +2905,7 @@
         "summary": "Return all libraries in the Server",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2773,7 +2955,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2832,7 +3014,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -2882,7 +3064,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2906,7 +3088,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2936,7 +3118,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2958,7 +3140,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -2991,7 +3173,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -3013,7 +3195,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3053,7 +3235,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3104,7 +3286,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -3128,7 +3310,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3195,7 +3377,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3225,7 +3407,7 @@
         "summary": "Has any license",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3254,7 +3436,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       },
@@ -3285,7 +3467,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -3316,7 +3498,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -3328,7 +3510,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3377,7 +3559,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3443,7 +3625,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3492,7 +3674,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3541,7 +3723,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3591,7 +3773,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3641,7 +3823,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3691,7 +3873,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3730,7 +3912,7 @@
         "summary": "Returns all languages Kavita can accept",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3780,7 +3962,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3821,7 +4003,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -3863,7 +4045,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3902,7 +4084,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       },
@@ -3922,12 +4104,12 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
     },
-    "/api/Opds/{apiKey}/smart-filter/{filterId}": {
+    "/api/Opds/{apiKey}/smart-filters/{filterId}": {
       "get": {
         "tags": [
           "Opds"
@@ -3963,7 +4145,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -3985,7 +4167,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4007,7 +4189,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4029,7 +4211,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4060,7 +4242,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4082,7 +4264,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4122,7 +4304,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4153,7 +4335,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4184,7 +4366,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4224,7 +4406,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4255,7 +4437,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4294,7 +4476,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4325,7 +4507,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4356,7 +4538,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4385,7 +4567,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4407,7 +4589,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4438,7 +4620,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4478,7 +4660,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4527,7 +4709,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4590,7 +4772,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4668,7 +4850,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4690,7 +4872,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4733,7 +4915,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4765,7 +4947,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -4816,7 +4998,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -4858,7 +5040,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -4897,7 +5079,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -4945,7 +5127,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -4996,7 +5178,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5037,7 +5219,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5079,7 +5261,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5113,7 +5295,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5182,7 +5364,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5232,7 +5414,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5282,7 +5464,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5315,7 +5497,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5348,7 +5530,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5381,7 +5563,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5414,7 +5596,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5447,7 +5629,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5480,7 +5662,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5513,7 +5695,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5537,7 +5719,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5587,7 +5769,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5610,7 +5792,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5651,7 +5833,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5692,7 +5874,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5751,7 +5933,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5810,7 +5992,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5843,7 +6025,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -5867,7 +6049,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5917,7 +6099,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -5977,7 +6159,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6010,7 +6192,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6052,7 +6234,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6114,7 +6296,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6159,7 +6341,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6200,7 +6382,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6261,7 +6443,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6295,7 +6477,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6319,7 +6501,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6369,7 +6551,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6417,7 +6599,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6467,7 +6649,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6517,7 +6699,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6568,7 +6750,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6627,7 +6809,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6660,7 +6842,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6684,7 +6866,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6717,7 +6899,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -6767,7 +6949,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6800,7 +6982,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6833,7 +7015,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6866,7 +7048,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6897,7 +7079,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6928,7 +7110,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -6952,7 +7134,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7011,7 +7193,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7064,7 +7246,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7107,7 +7289,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7125,6 +7307,72 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/ReadingList/promote-multiple": {
+      "post": {
+        "tags": [
+          "ReadingList"
+        ],
+        "summary": "Promote/UnPromote multiple reading lists in one go. Will only update the authenticated user's reading lists and will only work if the user has promotion role",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteReadingListsDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteReadingListsDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteReadingListsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/ReadingList/delete-multiple": {
+      "post": {
+        "tags": [
+          "ReadingList"
+        ],
+        "summary": "Delete multiple reading lists in one go",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteReadingListsDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteReadingListsDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteReadingListsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -7165,7 +7413,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7232,7 +7480,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7299,7 +7547,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7375,7 +7623,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7442,7 +7690,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7501,7 +7749,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7539,7 +7787,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -7552,7 +7800,7 @@
         "summary": "Get the current user's AniList token",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7581,7 +7829,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7631,7 +7879,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -7664,7 +7912,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -7694,7 +7942,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7725,7 +7973,7 @@
         "description": "Requires admin",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7764,7 +8012,7 @@
         "summary": "Clears the scrobbling errors table",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -7816,7 +8064,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7855,7 +8103,7 @@
         "summary": "Returns all scrobble holds for the current user",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7905,7 +8153,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7946,7 +8194,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -7987,7 +8235,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -8011,7 +8259,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -8035,7 +8283,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8076,7 +8324,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8103,18 +8351,29 @@
         "tags": [
           "Search"
         ],
+        "summary": "Searches against different entities in the system against a query string",
         "parameters": [
           {
             "name": "queryString",
             "in": "query",
+            "description": "",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "includeChapterAndFiles",
+            "in": "query",
+            "description": "Include Chapter and Filenames in the entities. This can slow down the search on larger systems",
+            "schema": {
+              "type": "boolean",
+              "default": true
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8193,7 +8452,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8272,7 +8531,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8323,7 +8582,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8363,7 +8622,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8411,7 +8670,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -8435,7 +8694,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8483,7 +8742,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8522,7 +8781,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8561,7 +8820,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8580,7 +8839,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/Series/update-rating": {
@@ -8611,7 +8871,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -8644,7 +8904,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -8706,7 +8966,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8785,7 +9045,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8824,7 +9084,7 @@
         "summary": "Returns series that were recently updated, like adding or removing a chapter",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -8912,7 +9172,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9000,7 +9260,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9069,7 +9329,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9119,7 +9379,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9152,7 +9412,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9185,7 +9445,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9218,7 +9478,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9242,7 +9502,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9290,7 +9550,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9331,7 +9591,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9389,7 +9649,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9440,7 +9700,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9482,7 +9742,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9549,7 +9809,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9599,7 +9859,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9649,7 +9909,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9687,7 +9947,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9728,7 +9988,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9758,7 +10018,7 @@
         "summary": "Performs an ad-hoc cleanup of Cache",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9771,7 +10031,7 @@
         "summary": "Performs an ad-hoc cleanup of Want To Read, by removing want to read series for users, where the series are fully read and in Completed publication status.",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9784,7 +10044,7 @@
         "summary": "Performs an ad-hoc backup of the Database",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9797,7 +10057,7 @@
         "summary": "This is a one time task that needs to be ran for v0.7 statistics to work",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9810,7 +10070,7 @@
         "summary": "Returns non-sensitive information about the current system",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9841,7 +10101,7 @@
         "description": "This is just for the UI and is extremely lightweight",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9871,7 +10131,7 @@
         "summary": "Triggers the scheduling of the convert media job. This will convert all media to the target encoding (except for PNG). Only one job will run at a time.",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9884,7 +10144,7 @@
         "summary": "Downloads all the log files via a zip",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9898,7 +10158,7 @@
         "description": "Some users have websocket issues so this is not always reliable to alert the user",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -9911,7 +10171,7 @@
         "summary": "Checks for updates, if no updates that are > current version installed, returns null",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9941,7 +10201,7 @@
         "summary": "Returns how many versions out of date this install is",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -9974,7 +10234,7 @@
         "summary": "Pull the Changelog for Kavita from Github and display",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10013,7 +10273,7 @@
         "summary": "Returns a list of reoccurring jobs. Scheduled ad-hoc jobs will not be returned.",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10052,7 +10312,7 @@
         "summary": "Returns a list of issues found during scanning or reading in which files may have corruption or bad metadata (structural metadata)",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10091,7 +10351,7 @@
         "summary": "Deletes all media errors",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -10104,7 +10364,7 @@
         "summary": "Bust Kavita+ Cache",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -10116,7 +10376,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10146,7 +10406,7 @@
         "summary": "Returns the server settings",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10192,7 +10452,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10221,7 +10481,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10251,7 +10511,7 @@
         "summary": "Resets the IP Addresses",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10281,7 +10541,7 @@
         "summary": "Resets the Base url",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10311,7 +10571,7 @@
         "summary": "Is the minimum information setup for Email to work",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10341,7 +10601,7 @@
         "summary": "All values allowed for Task Scheduling APIs. A custom cron job is not included. Disabled is not applicable for Cleanup.",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10379,7 +10639,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10417,7 +10677,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10455,7 +10715,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10495,7 +10755,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10525,7 +10785,7 @@
         "summary": "Sends a test email to see if email settings are hooked up correctly",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10565,7 +10825,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10594,7 +10854,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10623,7 +10883,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10661,7 +10921,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10699,7 +10959,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10737,7 +10997,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10788,7 +11048,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10827,7 +11087,7 @@
         "summary": "A breakdown of different files, their size, and format",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10854,6 +11114,28 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/Stats/server/file-extension": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "summary": "Generates a csv of all file paths for a given extension",
+        "parameters": [
+          {
+            "name": "fileExtension",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -10888,7 +11170,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10937,7 +11219,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10985,7 +11267,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11036,7 +11318,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11087,7 +11369,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11126,7 +11408,7 @@
         "summary": "Returns for Kavita+ the number of Series that have been processed, errored, and not processed",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11175,7 +11457,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11224,7 +11506,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11263,7 +11545,7 @@
         "summary": "Return's the user's external sources",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11322,7 +11604,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11372,7 +11654,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11426,7 +11708,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11467,7 +11749,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -11491,7 +11773,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11541,7 +11823,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -11574,7 +11856,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -11598,7 +11880,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11639,7 +11921,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11689,7 +11971,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -11722,7 +12004,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -11753,7 +12035,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -11777,7 +12059,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11826,7 +12108,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11855,7 +12137,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11884,16 +12166,52 @@
             }
           }
         }
-      }
-    },
-    "/api/Theme/scan": {
-      "post": {
+      },
+      "delete": {
         "tags": [
           "Theme"
         ],
+        "summary": "Attempts to delete a theme. If already in use by users, will not allow",
+        "parameters": [
+          {
+            "name": "themeId",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -11924,7 +12242,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -11947,7 +12265,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -11962,6 +12280,145 @@
               "text/json": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/Theme/browse": {
+      "get": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Browse themes that can be used on this server",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/Theme/download-theme": {
+      "post": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Downloads a SiteTheme from upstream",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadableSiteThemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteThemeDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteThemeDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteThemeDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/Theme/upload-theme": {
+      "post": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Uploads a new theme file",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "formFile": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "formFile": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteThemeDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteThemeDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteThemeDto"
                 }
               }
             }
@@ -11997,7 +12454,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12047,7 +12504,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12080,7 +12537,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12114,7 +12571,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12147,7 +12604,41 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Upload/volume": {
+      "post": {
+        "tags": [
+          "Upload"
+        ],
+        "summary": "Replaces volume cover image and locks it with a base64 encoded image.",
+        "description": "This is a helper API for Komf - Kavita UI does not use. Volume will find first chapter to update.",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadFileDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadFileDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadFileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -12180,7 +12671,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12213,7 +12704,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12234,7 +12725,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12258,7 +12749,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12296,7 +12787,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12344,7 +12835,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12383,7 +12874,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12431,7 +12922,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12461,7 +12952,7 @@
         "summary": "Returns the preferences of the user",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12491,7 +12982,7 @@
         "summary": "Returns a list of the user names within the system",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12570,7 +13061,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12617,7 +13108,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12686,7 +13177,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
@@ -12745,7 +13236,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12778,7 +13269,7 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OK"
           }
         }
       }
@@ -12787,6 +13278,9 @@
   "components": {
     "schemas": {
       "AgeRatingDto": {
+        "required": [
+          "title"
+        ],
         "type": "object",
         "properties": {
           "value": {
@@ -12820,6 +13314,10 @@
         "additionalProperties": false
       },
       "AgeRestrictionDto": {
+        "required": [
+          "ageRating",
+          "includeUnknowns"
+        ],
         "type": "object",
         "properties": {
           "ageRating": {
@@ -13198,6 +13696,11 @@
         "description": "Represents a saved page in a Chapter entity for a given user."
       },
       "AppUserCollection": {
+        "required": [
+          "ageRating",
+          "normalizedTitle",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -13223,7 +13726,14 @@
           },
           "coverImage": {
             "type": "string",
-            "description": "Path to the (managed) image file",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
             "nullable": true
           },
           "coverImageLocked": {
@@ -13295,6 +13805,16 @@
             "description": "For Non-Kavita sourced collections, the url to sync from",
             "nullable": true
           },
+          "totalSourceCount": {
+            "type": "integer",
+            "description": "Total number of items as of the last sync. Not applicable for Kavita managed collections.",
+            "format": "int32"
+          },
+          "missingSeriesFromSource": {
+            "type": "string",
+            "description": "A \r\n separated string of all missing series",
+            "nullable": true
+          },
           "appUser": {
             "$ref": "#/components/schemas/AppUser"
           },
@@ -13352,6 +13872,14 @@
             "description": "This is used to tell the UI if it should request a Cover Image or not. If null or empty, it has not been set.",
             "nullable": true
           },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
+            "nullable": true
+          },
           "coverImageLocked": {
             "type": "boolean"
           },
@@ -13379,11 +13907,24 @@
             "type": "string",
             "description": "For Non-Kavita sourced collections, the url to sync from",
             "nullable": true
+          },
+          "totalSourceCount": {
+            "type": "integer",
+            "description": "Total number of items as of the last sync. Not applicable for Kavita managed collections.",
+            "format": "int32"
+          },
+          "missingSeriesFromSource": {
+            "type": "string",
+            "description": "A \r\n separated string of all missing series",
+            "nullable": true
           }
         },
         "additionalProperties": false
       },
       "AppUserDashboardStream": {
+        "required": [
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -13432,6 +13973,11 @@
         "additionalProperties": false
       },
       "AppUserExternalSource": {
+        "required": [
+          "apiKey",
+          "host",
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -13461,6 +14007,9 @@
         "additionalProperties": false
       },
       "AppUserPreferences": {
+        "required": [
+          "theme"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -13617,15 +14166,6 @@
             ],
             "type": "integer",
             "description": "PDF Reader: Scroll mode of the reader",
-            "format": "int32"
-          },
-          "pdfLayoutMode": {
-            "enum": [
-              0,
-              2
-            ],
-            "type": "integer",
-            "description": "PDF Reader: Layout Mode of the reader",
             "format": "int32"
           },
           "pdfSpreadMode": {
@@ -13817,6 +14357,9 @@
         "additionalProperties": false
       },
       "AppUserSideNavStream": {
+        "required": [
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -13880,6 +14423,10 @@
         "additionalProperties": false
       },
       "AppUserSmartFilter": {
+        "required": [
+          "filter",
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -13907,6 +14454,12 @@
         "description": "Represents a Saved user Filter"
       },
       "AppUserTableOfContent": {
+        "required": [
+          "chapterId",
+          "pageNumber",
+          "seriesId",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -13979,6 +14532,9 @@
         "description": "A personal table of contents for a given user linked with a given book"
       },
       "AppUserWantToRead": {
+        "required": [
+          "seriesId"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -14231,6 +14787,10 @@
         "additionalProperties": false
       },
       "BulkUpdateSideNavStreamVisibilityDto": {
+        "required": [
+          "ids",
+          "visibility"
+        ],
         "type": "object",
         "properties": {
           "ids": {
@@ -14341,6 +14901,10 @@
         "description": "Represents the summary from the Import of a given CBL"
       },
       "Chapter": {
+        "required": [
+          "number",
+          "range"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -14373,6 +14937,10 @@
             "description": "The sorting order of the Chapter. Inherits from MinNumber, but can be overridden.",
             "format": "float"
           },
+          "sortOrderLocked": {
+            "type": "boolean",
+            "description": "Can the sort order be updated on scan or is it locked from UI"
+          },
           "files": {
             "type": "array",
             "items": {
@@ -14399,7 +14967,14 @@
           },
           "coverImage": {
             "type": "string",
-            "description": "Relative path to the (managed) image file representing the cover image",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
             "nullable": true
           },
           "coverImageLocked": {
@@ -14725,6 +15300,150 @@
             "type": "string",
             "description": "ISBN-13 (usually) of the Chapter",
             "nullable": true
+          },
+          "writers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "coverArtists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "publishers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "characters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "pencillers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "inkers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "imprints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "colorists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "letterers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "editors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "translators": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            },
+            "nullable": true
+          },
+          "genres": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GenreTagDto"
+            },
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagDto"
+            },
+            "description": "Collection of all Tags from underlying chapters for a Series",
+            "nullable": true
+          },
+          "publicationStatus": {
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "type": "integer",
+            "format": "int32"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language for the Chapter/Issue",
+            "nullable": true
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number in the TotalCount of issues",
+            "format": "int32"
+          },
+          "totalCount": {
+            "type": "integer",
+            "description": "Total number of issues for the series",
+            "format": "int32"
+          },
+          "coverImage": {
+            "type": "string",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -15037,6 +15756,10 @@
         "description": "Exclusively metadata about a given chapter"
       },
       "CollectionTag": {
+        "required": [
+          "normalizedTitle",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -15112,34 +15835,20 @@
         },
         "additionalProperties": false
       },
-      "CollectionTagDto": {
+      "ColorScapeDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "title": {
+          "primary": {
             "type": "string",
             "nullable": true
           },
-          "summary": {
+          "secondary": {
             "type": "string",
             "nullable": true
-          },
-          "promoted": {
-            "type": "boolean"
-          },
-          "coverImage": {
-            "type": "string",
-            "description": "The cover image string. This is used on Frontend to show or hide the Cover Image",
-            "nullable": true
-          },
-          "coverImageLocked": {
-            "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "A set of colors for the color scape system in the UI"
       },
       "ConfirmEmailDto": {
         "required": [
@@ -15257,6 +15966,14 @@
         "additionalProperties": false
       },
       "CreatePersonalToCDto": {
+        "required": [
+          "chapterId",
+          "libraryId",
+          "pageNumber",
+          "seriesId",
+          "title",
+          "volumeId"
+        ],
         "type": "object",
         "properties": {
           "chapterId": {
@@ -15301,6 +16018,9 @@
         "additionalProperties": false
       },
       "DashboardStreamDto": {
+        "required": [
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -15409,6 +16129,38 @@
         },
         "additionalProperties": false,
         "description": "For requesting an encoded filter to be decoded"
+      },
+      "DeleteCollectionsDto": {
+        "required": [
+          "collectionIds"
+        ],
+        "type": "object",
+        "properties": {
+          "collectionIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeleteReadingListsDto": {
+        "required": [
+          "readingListIds"
+        ],
+        "type": "object",
+        "properties": {
+          "readingListIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        },
+        "additionalProperties": false
       },
       "DeleteSeriesDto": {
         "type": "object",
@@ -15559,6 +16311,67 @@
         },
         "additionalProperties": false
       },
+      "DownloadableSiteThemeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Theme Name",
+            "nullable": true
+          },
+          "cssUrl": {
+            "type": "string",
+            "description": "Url to download css file",
+            "nullable": true
+          },
+          "cssFile": {
+            "type": "string",
+            "nullable": true
+          },
+          "previewUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Url to preview image",
+            "nullable": true
+          },
+          "alreadyDownloaded": {
+            "type": "boolean",
+            "description": "If Already downloaded"
+          },
+          "sha": {
+            "type": "string",
+            "description": "Sha of the file",
+            "nullable": true
+          },
+          "path": {
+            "type": "string",
+            "description": "Path of the Folder the files reside in",
+            "nullable": true
+          },
+          "author": {
+            "type": "string",
+            "description": "Author of the theme",
+            "nullable": true
+          },
+          "lastCompatibleVersion": {
+            "type": "string",
+            "description": "Last version tested against",
+            "nullable": true
+          },
+          "isCompatible": {
+            "type": "boolean",
+            "description": "If version compatible with version"
+          },
+          "description": {
+            "type": "string",
+            "description": "Small blurb about the Theme",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "EmailTestResultDto": {
         "type": "object",
         "properties": {
@@ -15621,6 +16434,11 @@
         "additionalProperties": false
       },
       "ExternalRecommendation": {
+        "required": [
+          "coverUrl",
+          "name",
+          "url"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -15680,6 +16498,11 @@
         "additionalProperties": false
       },
       "ExternalReview": {
+        "required": [
+          "body",
+          "bodyJustText",
+          "provider"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -15753,6 +16576,11 @@
         "description": "Represents an Externally supplied Review for a given Series"
       },
       "ExternalSeriesDto": {
+        "required": [
+          "coverUrl",
+          "name",
+          "url"
+        ],
         "type": "object",
         "properties": {
           "name": {
@@ -15858,6 +16686,12 @@
         "description": "External Metadata from Kavita+ for a Series"
       },
       "ExternalSourceDto": {
+        "required": [
+          "apiKey",
+          "host",
+          "id",
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -15955,6 +16789,10 @@
         "additionalProperties": false
       },
       "FileFormatDto": {
+        "required": [
+          "extension",
+          "format"
+        ],
         "type": "object",
         "properties": {
           "extension": {
@@ -16309,6 +17147,9 @@
         "description": "Metadata filtering for v2 API only"
       },
       "FolderPath": {
+        "required": [
+          "path"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -16378,6 +17219,10 @@
         "description": "A full progress Record from the DB (not all data, only what's needed for API)"
       },
       "Genre": {
+        "required": [
+          "normalizedTitle",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -16410,6 +17255,9 @@
         "additionalProperties": false
       },
       "GenreTagDto": {
+        "required": [
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -16581,6 +17429,10 @@
         "description": "Represents an individual button in a Jump Bar"
       },
       "LanguageDto": {
+        "required": [
+          "isoCode",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "isoCode": {
@@ -16595,6 +17447,9 @@
         "additionalProperties": false
       },
       "Library": {
+        "required": [
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -16606,6 +17461,14 @@
             "nullable": true
           },
           "coverImage": {
+            "type": "string",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
             "type": "string",
             "nullable": true
           },
@@ -16889,6 +17752,14 @@
         "additionalProperties": false
       },
       "MalStackDto": {
+        "required": [
+          "author",
+          "restackCount",
+          "seriesCount",
+          "stackId",
+          "title",
+          "url"
+        ],
         "type": "object",
         "properties": {
           "title": {
@@ -16925,6 +17796,10 @@
         "description": "Represents an Interest Stack from MAL"
       },
       "MalUserInfoDto": {
+        "required": [
+          "accessToken",
+          "username"
+        ],
         "type": "object",
         "properties": {
           "username": {
@@ -16941,6 +17816,9 @@
         "description": "Information about a User's MAL connection"
       },
       "MangaFile": {
+        "required": [
+          "filePath"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -17030,14 +17908,17 @@
           },
           "filePath": {
             "type": "string",
+            "description": "Absolute path to the archive file (normalized)",
             "nullable": true
           },
           "pages": {
             "type": "integer",
+            "description": "Number of pages for the given file",
             "format": "int32"
           },
           "bytes": {
             "type": "integer",
+            "description": "How many bytes make up this file",
             "format": "int64"
           },
           "format": {
@@ -17055,6 +17936,11 @@
           "created": {
             "type": "string",
             "format": "date-time"
+          },
+          "extension": {
+            "type": "string",
+            "description": "File extension",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -17149,6 +18035,10 @@
         "description": "This is used for bulk updating a set of volume and or chapters in one go"
       },
       "MediaErrorDto": {
+        "required": [
+          "extension",
+          "filePath"
+        ],
         "type": "object",
         "properties": {
           "extension": {
@@ -17170,6 +18060,10 @@
             "type": "string",
             "description": "Exception message",
             "nullable": true
+          },
+          "createdUtc": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false
@@ -17256,6 +18150,11 @@
         "additionalProperties": false
       },
       "Person": {
+        "required": [
+          "name",
+          "normalizedName",
+          "role"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -17308,6 +18207,9 @@
         "additionalProperties": false
       },
       "PersonDto": {
+        "required": [
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -17342,6 +18244,11 @@
         "additionalProperties": false
       },
       "PersonalToCDto": {
+        "required": [
+          "chapterId",
+          "pageNumber",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "chapterId": {
@@ -17422,6 +18329,23 @@
         },
         "additionalProperties": false
       },
+      "PromoteReadingListsDto": {
+        "type": "object",
+        "properties": {
+          "readingListIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "promoted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "PublicationStatusStatCount": {
         "type": "object",
         "properties": {
@@ -17472,6 +18396,11 @@
         "additionalProperties": false
       },
       "ReadHistoryEvent": {
+        "required": [
+          "chapterNumber",
+          "seriesName",
+          "userName"
+        ],
         "type": "object",
         "properties": {
           "userId": {
@@ -17527,6 +18456,11 @@
         "description": "Represents the Reading Status. This is a flag and allows multiple statues"
       },
       "ReadingList": {
+        "required": [
+          "ageRating",
+          "normalizedTitle",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -17552,7 +18486,14 @@
           },
           "coverImage": {
             "type": "string",
-            "description": "Absolute path to the (managed) image file",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
             "nullable": true
           },
           "coverImageLocked": {
@@ -17660,6 +18601,14 @@
           "coverImage": {
             "type": "string",
             "description": "This is used to tell the UI if it should request a Cover Image or not. If null or empty, it has not been set.",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
             "nullable": true
           },
           "startingYear": {
@@ -17830,6 +18779,11 @@
             "type": "integer",
             "description": "File size of underlying item",
             "format": "int64"
+          },
+          "summary": {
+            "type": "string",
+            "description": "The chapter summary",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -18472,6 +19426,14 @@
         "additionalProperties": false
       },
       "Series": {
+        "required": [
+          "localizedName",
+          "name",
+          "normalizedLocalizedName",
+          "normalizedName",
+          "originalName",
+          "sortName"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -18571,6 +19533,14 @@
             "type": "integer",
             "description": "The type of all the files attached to this series",
             "format": "int32"
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
+            "nullable": true
           },
           "sortNameLocked": {
             "type": "boolean"
@@ -18863,6 +19833,18 @@
             "type": "string",
             "description": "The last time the folder for this series was scanned",
             "format": "date-time"
+          },
+          "coverImage": {
+            "type": "string",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -19352,6 +20334,16 @@
         "description": "A relation flows between one series and another.\r\nSeries ---kind---> target"
       },
       "ServerInfoDto": {
+        "required": [
+          "dotnetVersion",
+          "fileFormats",
+          "installId",
+          "kavitaVersion",
+          "mangaReaderBackgroundColors",
+          "mangaReaderLayoutModes",
+          "mangaReaderPageSplittingModes",
+          "os"
+        ],
         "type": "object",
         "properties": {
           "installId": {
@@ -19685,6 +20677,17 @@
           },
           "smtpConfig": {
             "$ref": "#/components/schemas/SmtpConfigDto"
+          },
+          "firstInstallDate": {
+            "type": "string",
+            "description": "The Date Kavita was first installed",
+            "format": "date-time",
+            "nullable": true
+          },
+          "firstInstallVersion": {
+            "type": "string",
+            "description": "The Version of Kavita on the first run",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -19769,6 +20772,9 @@
         "additionalProperties": false
       },
       "SideNavStreamDto": {
+        "required": [
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -19850,6 +20856,11 @@
         "additionalProperties": false
       },
       "SiteTheme": {
+        "required": [
+          "fileName",
+          "name",
+          "normalizedName"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -19899,12 +20910,44 @@
           "lastModifiedUtc": {
             "type": "string",
             "format": "date-time"
+          },
+          "gitHubPath": {
+            "type": "string",
+            "description": "The Url on the repo to download the file from",
+            "nullable": true
+          },
+          "shaHash": {
+            "type": "string",
+            "description": "Hash of the Css File",
+            "nullable": true
+          },
+          "previewUrls": {
+            "type": "string",
+            "description": "Pipe (|) separated urls of the images. Empty string if",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "author": {
+            "type": "string",
+            "nullable": true
+          },
+          "compatibleVersion": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false,
         "description": "Represents a set of css overrides the user can upload to Kavita and will load into webui"
       },
       "SiteThemeDto": {
+        "required": [
+          "fileName",
+          "name",
+          "normalizedName"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -19939,6 +20982,28 @@
             "description": "Where did the theme come from",
             "format": "int32"
           },
+          "previewUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "description": "Information about the theme",
+            "nullable": true
+          },
+          "author": {
+            "type": "string",
+            "description": "Author of the Theme (only applies to non-system provided themes)",
+            "nullable": true
+          },
+          "compatibleVersion": {
+            "type": "string",
+            "description": "Last compatible version. System provided will always be most current",
+            "nullable": true
+          },
           "selector": {
             "type": "string",
             "nullable": true,
@@ -19949,6 +21014,10 @@
         "description": "Represents a set of css overrides the user can upload to Kavita and will load into webui"
       },
       "SmartFilterDto": {
+        "required": [
+          "filter",
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -20021,7 +21090,8 @@
               5,
               6,
               7,
-              8
+              8,
+              9
             ],
             "type": "integer",
             "format": "int32"
@@ -20034,6 +21104,10 @@
         "description": "Sorting Options for a query"
       },
       "Tag": {
+        "required": [
+          "normalizedTitle",
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -20066,6 +21140,9 @@
         "additionalProperties": false
       },
       "TagDto": {
+        "required": [
+          "title"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -20219,6 +21296,7 @@
       "UpdateLibraryDto": {
         "required": [
           "allowScrobbling",
+          "excludePatterns",
           "fileGroupTypes",
           "folders",
           "folderWatching",
@@ -20300,13 +21378,16 @@
             "items": {
               "type": "string"
             },
-            "description": "A set of Glob patterns that the scanner will exclude processing",
-            "nullable": true
+            "description": "A set of Glob patterns that the scanner will exclude processing"
           }
         },
         "additionalProperties": false
       },
       "UpdateLibraryForUserDto": {
+        "required": [
+          "selectedLibraries",
+          "username"
+        ],
         "type": "object",
         "properties": {
           "username": {
@@ -20324,6 +21405,10 @@
         "additionalProperties": false
       },
       "UpdateLicenseDto": {
+        "required": [
+          "email",
+          "license"
+        ],
         "type": "object",
         "properties": {
           "license": {
@@ -20345,6 +21430,14 @@
         "additionalProperties": false
       },
       "UpdateNotificationDto": {
+        "required": [
+          "currentVersion",
+          "publishDate",
+          "updateBody",
+          "updateTitle",
+          "updateUrl",
+          "updateVersion"
+        ],
         "type": "object",
         "properties": {
           "currentVersion": {
@@ -20715,7 +21808,7 @@
         "type": "object",
         "properties": {
           "tag": {
-            "$ref": "#/components/schemas/CollectionTagDto"
+            "$ref": "#/components/schemas/AppUserCollectionDto"
           },
           "seriesIdsToRemove": {
             "type": "array",
@@ -20855,6 +21948,10 @@
         "description": "A list of Series to pass when working with Want To Read APIs"
       },
       "UploadFileDto": {
+        "required": [
+          "id",
+          "url"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -21085,7 +22182,7 @@
             "format": "int32"
           },
           "theme": {
-            "$ref": "#/components/schemas/SiteTheme"
+            "$ref": "#/components/schemas/SiteThemeDto"
           },
           "bookReaderThemeName": {
             "minLength": 1,
@@ -21293,6 +22390,11 @@
         "description": "Represents a User Review for a given Series"
       },
       "Volume": {
+        "required": [
+          "maxNumber",
+          "minNumber",
+          "name"
+        ],
         "type": "object",
         "properties": {
           "id": {
@@ -21350,7 +22452,14 @@
           },
           "coverImage": {
             "type": "string",
-            "description": "Absolute path to the (managed) image file",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
             "nullable": true
           },
           "pages": {
@@ -21458,6 +22567,18 @@
           "avgHoursToRead": {
             "type": "integer",
             "format": "int32"
+          },
+          "coverImage": {
+            "type": "string",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryColor": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false

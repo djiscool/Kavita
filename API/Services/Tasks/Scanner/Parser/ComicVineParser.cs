@@ -37,8 +37,8 @@ public class ComicVineParser(IDirectoryService directoryService) : DefaultParser
             FullFilePath = Parser.NormalizePath(filePath),
             Series = string.Empty,
             ComicInfo = comicInfo,
-            Chapters = Parser.ParseComicChapter(fileName),
-            Volumes = Parser.ParseComicVolume(fileName)
+            Chapters = Parser.ParseChapter(fileName, type),
+            Volumes = Parser.ParseVolume(fileName, type)
         };
 
         // See if we can formulate the name from the ComicInfo
@@ -78,14 +78,14 @@ public class ComicVineParser(IDirectoryService directoryService) : DefaultParser
         }
 
         // Check if this is a Special/Annual
-        info.IsSpecial = Parser.IsComicSpecial(info.Filename) || Parser.IsComicSpecial(info.ComicInfo?.Format);
+        info.IsSpecial = Parser.IsSpecial(info.Filename, type) || Parser.IsSpecial(info.ComicInfo?.Format, type);
 
         // Patch in other information from ComicInfo
         UpdateFromComicInfo(info);
 
         if (string.IsNullOrEmpty(info.Series))
         {
-            info.Series = Parser.CleanTitle(directoryName, true, true);
+            info.Series = Parser.CleanTitle(directoryName, true, false);
         }
 
 

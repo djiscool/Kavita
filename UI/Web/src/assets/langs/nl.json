@@ -29,7 +29,7 @@
     },
     "user-scrobble-history": {
         "title": "Scrobble geschiedenis",
-        "description": "Hier vindt u alle scrobble-evenementen die aan uw account zijn gekoppeld. Om evenementen te laten bestaan, moet u een actieve scrobble provider geconfigureerd hebben. Alle verwerkte gebeurtenissen worden na een maand gewist. Als er niet-verwerkte gebeurtenissen zijn, is het waarschijnlijk dat deze online geen matches kunnen vormen. Neem contact op met uw beheerder om ze te laten corrigeren.",
+        "description": "Hier vindt u alle scrobble-evenementen die aan uw account zijn gekoppeld. Om evenementen te hebben, moet u een actieve scrobble provider geconfigureerd hebben. Alle verwerkte gebeurtenissen worden na een maand gewist. Als er niet-verwerkte gebeurtenissen zijn, is het waarschijnlijk dat deze online geen matches kunnen vormen. Neem contact op met uw beheerder om ze te laten corrigeren.",
         "filter-label": "{{common.filter}}",
         "created-header": "Gemaakt",
         "last-modified-header": "Laatst gewijzigd",
@@ -59,7 +59,9 @@
         "review-label": "Beoordeling",
         "close": "{{common.close}}",
         "save": "{{common.save}}",
-        "min-length": "Review moet minimum {{count}} characters hebben"
+        "min-length": "Review moet minimum {{count}} characters hebben",
+        "delete": "{{common.delete}}",
+        "required": "{{validation.required-field}}"
     },
     "review-card-modal": {
         "close": "{{common.close}}",
@@ -84,7 +86,6 @@
         "pref-description": "Dit zijn algemene instellingen die aan he account zijn gekoppeld.",
         "account-tab": "Account",
         "preferences-tab": "Voorkeuren",
-        "3rd-party-clients-tab": "Clients van derden",
         "theme-tab": "Thema",
         "devices-tab": "Apparaten",
         "stats-tab": "Statistieken",
@@ -154,9 +155,6 @@
     },
     "theme-manager": {
         "title": "Thema Beheerder",
-        "looking-for-theme": "Op zoek naar een licht of e-inkt thema? We hebben enkele aangepaste thema's die u kunt gebruiken ",
-        "looking-for-theme-continued": "thema github.",
-        "scan": "Scan",
         "site-themes": "Site Thema's",
         "set-default": "Stel de standaard in",
         "apply": "{{common.apply}}",
@@ -174,8 +172,7 @@
         "include-unknowns-tooltip": "Als dit waar is, zijn onbekenden toegestaan met leeftijdsbeperking. Dit kan ertoe leiden dat niet-gecodeerde media uitlekken naar gebruikers met leeftijdsbeperkingen."
     },
     "site-theme-provider-pipe": {
-        "system": "Systeem",
-        "user": "Gebruiker"
+        "system": "Systeem"
     },
     "manage-devices": {
         "title": "Apparaat beheerder",
@@ -187,15 +184,6 @@
         "add": "{{common.add}}",
         "delete": "{{common.delete}}",
         "edit": "{{common.edit}}"
-    },
-    "edit-device": {
-        "device-name-label": "Apparaat naam",
-        "email-label": "{{common.email}}",
-        "email-tooltip": "Dit e-mailadres wordt gebruikt om het bestand via Verzenden naar te accepteren",
-        "device-platform-label": "Apparaatplatform",
-        "save": "{{common.save}}",
-        "required-field": "{{validation.required-field}}",
-        "valid-email": "{{validation.valid-email}}"
     },
     "change-password": {
         "password-label": "{{common.password}}",
@@ -211,7 +199,6 @@
         "permission-error": "U heeft geen toestemming om uw wachtwoord te wijzigen. Neem contact op met de beheerder van de server."
     },
     "change-email": {
-        "email-label": "{{common.email}}",
         "current-password-label": "Huidig paswoord",
         "email-not-confirmed": "Deze e-mail is niet bevestigd",
         "email-updated-title": "E-mail bijgewerkt",
@@ -482,7 +469,7 @@
     "invite-user": {
         "title": "Gebruiker uitnodigen",
         "close": "{{common.close}}",
-        "description": "Nodig een gebruiker uit voor uw server. Voer hun e-mailadres in en we sturen ze een e-mail om een account aan te maken. Als u onze e-mailservice niet wilt gebruiken, kunt u <a href=\"https://wiki.kavitareader.com/en/guides/misc/email\" rel=\"noopener noreferrer\" target=\"_blank\">uw eigen hosten</a> e-mailservice of gebruik een nep-e-mail (gebruiker vergeten werkt niet). Er wordt hoe dan ook een link gepresenteerd die kan worden gebruikt om het account handmatig in te stellen.",
+        "description": "Nodig een gebruiker uit voor uw server. Voer hun e-mailadres in en we sturen ze een e-mail om een account aan te maken. Als u onze e-mailservice niet wilt gebruiken, kunt u <a href=\"https://wiki.kavitareader.com/guides/admin-settings/email\" rel=\"noopener noreferrer\" target=\"_blank\">uw eigen hosten</a> e-mailservice of gebruik een nep-e-mail (gebruiker vergeten werkt niet). Er wordt hoe dan ook een link gepresenteerd die kan worden gebruikt om het account handmatig in te stellen.",
         "email": "{{common.email}}",
         "required-field": "{{common.required-field}}",
         "setup-user-title": "Gebruiker uitgenodigd",
@@ -908,18 +895,7 @@
     "list-item": {
         "read": "{{common.read}}"
     },
-    "manage-alerts": {
-        "description-part-1": "Deze tabel bevat problemen die zijn gevonden tijdens het scannen of lezen van uw media. Deze lijst wordt niet beheerd. U kunt het op elk moment wissen en Library (Force) Scan gebruiken om analyses uit te voeren. Een lijst met enkele veelvoorkomende fouten en hun betekenis is te vinden op de ",
-        "description-part-2": "wiki.",
-        "filter-label": "{{common.filter}}",
-        "clear-alerts": "Meldingen wissen",
-        "extension-header": "Extensie",
-        "file-header": "Bestand",
-        "comment-header": "Opmerking",
-        "details-header": "Details"
-    },
     "manage-email-settings": {
-        "title": "E-mailservices (SMTP)",
         "description": "Kavita komt standaard met een e-mailservice om taken mogelijk te maken, zoals het uitnodigen van gebruikers, verzoeken om wachtwoord opnieuw in te stellen, enz. E-mails die via onze service worden verzonden, worden onmiddellijk verwijderd. U kunt uw eigen e-mailservice gebruiken door de {{link}}  service in te stellen. Stel de URL van de e-mailservice in en gebruik de testknop om te controleren of deze werkt. U kunt deze instellingen op elk moment terugzetten naar de standaardinstellingen. Er is geen manier om e-mails voor authenticatie uit te schakelen, hoewel u niet verplicht bent om een geldig e-mailadres voor gebruikers te gebruiken. Bevestigingslinks worden altijd opgeslagen in logboeken en gepresenteerd in de gebruikersinterface. Registratie-/bevestigings-e-mails worden niet verzonden als u Kavita niet opent via een openbaar bereikbare URL of tenzij de functie Hostnaam is geconfigureerd.",
         "send-to-warning": "Als u Verzenden naar apparaat wilt laten werken, moet u uw eigen e-mailservice hosten.",
         "email-url-label": "E-mailservice-URL",
@@ -1091,12 +1067,9 @@
         "change-password-alt": "Verander wachtwoord {{user}}",
         "resend": "Opnieuw versturen",
         "setup": "Instelling",
-        "last-active-title": "Laatst actief:",
-        "roles-title": "Rollen:",
         "none": "Geen",
         "never": "Nooit",
         "online-now-tooltip": "Nu online",
-        "sharing-title": "Delen:",
         "no-data": "Er zijn geen andere gebruikers.",
         "loading": "{{common.loading}}"
     },
@@ -1114,7 +1087,6 @@
         "promote-label": "Promoot",
         "promote-tooltip": "Promotie betekent dat de tag serverbreed zichtbaar is, niet alleen voor beheerders. Alle series die deze tag hebben, hebben nog steeds beperkingen voor gebruikerstoegang.",
         "summary-label": "Samenvatting",
-        "series-title": "Geldt voor serie",
         "deselect-all": "{{common.deselect-all}}",
         "select-all": "{{common.select-all}}"
     },
@@ -1130,22 +1102,6 @@
         "quick-catchups": "Snelle inhaalacties",
         "quick-reads": "Snel gelezen",
         "on-deck": "{{dashboard.on-deck-title}}"
-    },
-    "admin-dashboard": {
-        "title": "Beheerdashboard",
-        "general-tab": "Algemeen",
-        "users-tab": "Gebruikers",
-        "libraries-tab": "Bibliotheken",
-        "media-tab": "Media",
-        "logs-tab": "Logboeken",
-        "email-tab": "Email",
-        "tasks-tab": "Taken",
-        "statistics-tab": "Statistieken",
-        "system-tab": "Systeem",
-        "kavita+-tab": "Kavita+",
-        "kavita+-desc-part-1": "Kavita+ is een premium abonnementsservice die functies ontgrendelt voor alle gebruikers van deze Kavita-instantie. Koop een abonnement om te ontgrendelen ",
-        "kavita+-desc-part-2": "premium voordelen",
-        "kavita+-desc-part-3": "Vandaag!"
     },
     "collection-detail": {
         "no-data": "Hier is nog niks. Probeer nieuwe series toe te voegen.",
@@ -1230,7 +1186,6 @@
         "skip-alt": "Ga verder naar de hoofdinhoud",
         "search-series-alt": "Zoek serie",
         "search-alt": "Zoek…",
-        "promoted": "(gepromoot)",
         "no-data": "Geen resultaten gevonden",
         "scroll-to-top-alt": "Scroll naar boven",
         "server-settings": "Serverinstellingen",
@@ -1273,7 +1228,6 @@
         "import-description": "Importeer een .cbl-bestand om aan de slag te gaan. Kavita voert meerdere controles uit voordat het importeert. Sommige stappen blokkeren de voortgang vanwege problemen met het bestand.",
         "validate-description": "Alle bestanden zijn gevalideerd om te zien of er bewerkingen in de lijst moeten worden uitgevoerd. Lijsten die zijn mislukt, gaan niet naar de volgende stap. Herstel de CBL-bestanden en probeer het opnieuw.",
         "validate-warning": "Er zijn problemen met het CBL die een import verhinderen. Corrigeer deze problemen en probeer het opnieuw.",
-        "validate-no-issue": "Ziet er goed uit",
         "validate-no-issue-description": "Geen problemen gevonden met CBL, druk op Volgende.",
         "dry-run-description": "Dit is een testrun en laat zien wat er gebeurt als u op Volgende drukt en de import uitvoert. Niet alle fouten worden geïmporteerd.",
         "prev": "Vorige",
@@ -1386,7 +1340,6 @@
         "cover-image-tab": "Omslagfoto",
         "related-tab": "Verwant",
         "info-tab": "Info",
-        "collections-label": "Collecties",
         "genres-label": "Genres",
         "tags-label": "Labels",
         "cover-artist-label": "Coverartiest",

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO.Abstractions;
 using System.Linq;
 using System.Security.Cryptography;
@@ -37,6 +38,9 @@ public class Program
 
     public static async Task Main(string[] args)
     {
+        CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+        CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
+
         Console.OutputEncoding = System.Text.Encoding.UTF8;
         Log.Logger = new LoggerConfiguration()
             .WriteTo.Console()
@@ -93,12 +97,15 @@ public class Program
                     Task.Run(async () =>
                         {
                             // Apply all migrations on startup
-                            logger.LogInformation("Running Migrations");
+                            logger.LogInformation("Running Manual Migrations");
 
-                            // v0.7.14
                             try
                             {
+                                // v0.7.14
                                 await MigrateWantToReadExport.Migrate(context, directoryService, logger);
+
+                                // v0.8.2
+                                await ManualMigrateSwitchToWal.Migrate(context, logger);
                             }
                             catch (Exception ex)
                             {
@@ -106,7 +113,7 @@ public class Program
                             }
 
                             await unitOfWork.CommitAsync();
-                            logger.LogInformation("Running Migrations - complete");
+                            logger.LogInformation("Running Manual Migrations - complete");
                         }).GetAwaiter()
                         .GetResult();
                 }

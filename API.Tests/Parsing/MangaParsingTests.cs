@@ -86,7 +86,7 @@ public class MangaParsingTests
     [InlineData("Nagasarete Airantou - Vol. 30 Ch. 187.5 - Vol.31 Omake", "30")]
     public void ParseVolumeTest(string filename, string expected)
     {
-        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.ParseVolume(filename));
+        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.ParseVolume(filename, LibraryType.Manga));
     }
 
     [Theory]
@@ -210,9 +210,11 @@ public class MangaParsingTests
     [InlineData("เด็กคนนี้ขอลาออกจากการเป็นเจ้าของปราสาท เล่ม 1", "เด็กคนนี้ขอลาออกจากการเป็นเจ้าของปราสาท")]
     [InlineData("Max Level Returner เล่มที่ 5", "Max Level Returner")]
     [InlineData("หนึ่งความคิด นิจนิรันดร์ เล่ม 2", "หนึ่งความคิด นิจนิรันดร์")]
+    [InlineData("不安の種\uff0b - 01", "不安の種\uff0b")]
+    [InlineData("Giant Ojou-sama - Ch. 33.5 - Volume 04 Bonus Chapter", "Giant Ojou-sama")]
     public void ParseSeriesTest(string filename, string expected)
     {
-        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.ParseSeries(filename));
+        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.ParseSeries(filename, LibraryType.Manga));
     }
 
     [Theory]
@@ -304,7 +306,7 @@ public class MangaParsingTests
     [InlineData("หนึ่งความคิด นิจนิรันดร์ บทที่ 112", "112")]
     public void ParseChaptersTest(string filename, string expected)
     {
-        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.ParseChapter(filename));
+        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.ParseChapter(filename, LibraryType.Manga));
     }
 
 
@@ -342,7 +344,7 @@ public class MangaParsingTests
     [InlineData("Hajime no Ippo - Artbook", false)]
     public void IsMangaSpecialTest(string input, bool expected)
     {
-        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.IsMangaSpecial(input));
+        Assert.Equal(expected, API.Services.Tasks.Scanner.Parser.Parser.IsSpecial(input, LibraryType.Manga));
     }
 
     [Theory]
