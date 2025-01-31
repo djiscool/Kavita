@@ -4,7 +4,6 @@ import {
   DestroyRef,
   HostListener,
   inject,
-  Inject,
   OnInit
 } from '@angular/core';
 import {NavigationStart, Router, RouterOutlet} from '@angular/router';
@@ -23,6 +22,10 @@ import {ServerService} from "./_services/server.service";
 import {OutOfDateModalComponent} from "./announcements/_components/out-of-date-modal/out-of-date-modal.component";
 import {PreferenceNavComponent} from "./sidenav/preference-nav/preference-nav.component";
 import {Breakpoint, UtilityService} from "./shared/_services/utility.service";
+import {TranslocoService} from "@jsverse/transloco";
+import {User} from "./_models/user";
+import {VersionService} from "./_services/version.service";
+import {LicenseService} from "./_services/license.service";
 
 @Component({
     selector: 'app-root',
@@ -46,13 +49,17 @@ export class AppComponent implements OnInit {
   private readonly ngbModal = inject(NgbModal);
   private readonly router = inject(Router);
   private readonly themeService = inject(ThemeService);
+  private readonly document = inject(DOCUMENT);
+  private readonly translocoService = inject(TranslocoService);
+  private readonly versionService = inject(VersionService); // Needs to be injected to run background job
+  private readonly licenseService = inject(LicenseService);
 
   protected readonly Breakpoint = Breakpoint;
 
 
-  constructor(ratingConfig: NgbRatingConfig, @Inject(DOCUMENT) private document: Document, modalConfig: NgbModalConfig) {
+  constructor(ratingConfig: NgbRatingConfig, modalConfig: NgbModalConfig) {
 
-    modalConfig.fullscreen = 'md';
+    modalConfig.fullscreen = 'lg';
 
     // Setup default rating config
     ratingConfig.max = 5;
@@ -80,7 +87,6 @@ export class AppComponent implements OnInit {
           const currentRoute = this.router.routerState;
           await this.router.navigateByUrl(currentRoute.snapshot.url, { skipLocationChange: true });
         }
-
       });
 
 
@@ -89,6 +95,8 @@ export class AppComponent implements OnInit {
       if (!user) return false;
       return user.preferences.noTransitions;
     }), takeUntilDestroyed(this.destroyRef));
+
+
   }
 
   @HostListener('window:resize', ['$event'])
@@ -97,6 +105,7 @@ export class AppComponent implements OnInit {
     // Sets a CSS variable for the actual device viewport height. Needed for mobile dev.
     const vh = window.innerHeight * 0.01;
     this.document.documentElement.style.setProperty('--vh', `${vh}px`);
+    this.utilityService.activeBreakpointSource.next(this.utilityService.getActiveBreakpoint());
   }
 
   ngOnInit(): void {
@@ -105,34 +114,16 @@ export class AppComponent implements OnInit {
     this.themeService.setColorScape('');
   }
 
+
   setCurrentUser() {
     const user = this.accountService.getUserFromLocalStorage();
     this.accountService.setCurrentUser(user);
 
-    if (user) {
-      // Bootstrap anything that's needed
-      this.themeService.getThemes().subscribe();
-      this.libraryService.getLibraryNames().pipe(take(1), shareReplay({refCount: true, bufferSize: 1})).subscribe();
-      // On load, make an initial call for valid license
-      this.accountService.hasValidLicense().subscribe();
+    if (!user) return;
 
-      // Every hour, have the UI check for an update. People seriously stay out of date
-      interval(2* 60 * 60 * 1000) // 2 hours in milliseconds
-        .pipe(
-          switchMap(() => this.accountService.currentUser$),
-          filter(u => u !== undefined && this.accountService.hasAdminRole(u)),
-          switchMap(_ => this.serverService.checkHowOutOfDate()),
-          filter(versionOutOfDate => {
-            return !isNaN(versionOutOfDate) && versionOutOfDate > 2;
-          }),
-          tap(versionOutOfDate => {
-            if (!this.ngbModal.hasOpenModals()) {
-              const ref = this.ngbModal.open(OutOfDateModalComponent, {size: 'xl', fullscreen: 'md'});
-              ref.componentInstance.versionsOutOfDate = versionOutOfDate;
-            }
-          })
-        )
-        .subscribe();
-    }
+    // Bootstrap anything that's needed
+    this.themeService.getThemes().subscribe();
+    this.libraryService.getLibraryNames().pipe(take(1), shareReplay({refCount: true, bufferSize: 1})).subscribe();
+    this.licenseService.licenseInfo().subscribe();
   }
 }

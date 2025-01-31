@@ -4,13 +4,14 @@ import {
   Component,
   ContentChild, ElementRef, EventEmitter, HostListener,
   inject,
-  Input, Output,
+  Input, OnChanges, Output, SimpleChange, SimpleChanges,
   TemplateRef
 } from '@angular/core';
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {NgTemplateOutlet} from "@angular/common";
 import {SafeHtmlPipe} from "../../../_pipes/safe-html.pipe";
 import {filter, fromEvent, tap} from "rxjs";
+import {AbstractControl, FormControl} from "@angular/forms";
 
 @Component({
   selector: 'app-setting-item',
@@ -24,7 +25,7 @@ import {filter, fromEvent, tap} from "rxjs";
   styleUrl: './setting-item.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class SettingItemComponent {
+export class SettingItemComponent implements OnChanges {
 
   private readonly cdRef = inject(ChangeDetectorRef);
 
@@ -36,6 +37,7 @@ export class SettingItemComponent {
   @Input() subtitle: string | undefined = undefined;
   @Input() labelId: string | undefined = undefined;
   @Input() toggleOnViewClick: boolean = true;
+  @Input() control: AbstractControl<any> | null = null;
   @Output() editMode = new EventEmitter<boolean>();
 
   /**
@@ -67,9 +69,12 @@ export class SettingItemComponent {
       .pipe(
         filter((event: Event) => {
           if (!this.toggleOnViewClick) return false;
+          if (this.control != null && this.control.invalid) return false;
 
           const mouseEvent = event as MouseEvent;
-          return !elementRef.nativeElement.contains(mouseEvent.target)
+          const selection = window.getSelection();
+          const hasSelection = selection !== null && selection.toString().trim() === '';
+          return !elementRef.nativeElement.contains(mouseEvent.target) && hasSelection;
         }),
         tap(() => {
           this.isEditMode = false;
@@ -80,9 +85,28 @@ export class SettingItemComponent {
       .subscribe();
   }
 
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes.hasOwnProperty('isEditMode')) {
+      const change = changes.isEditMode as SimpleChange;
+      if (change.isFirstChange()) return;
+
+      if (!this.toggleOnViewClick) return;
+      if (!this.canEdit) return;
+      if (this.control != null && this.control.invalid) return;
+
+      console.log('isEditMode', this.isEditMode, 'currentValue', change.currentValue);
+      this.isEditMode = change.currentValue;
+      //this.editMode.emit(this.isEditMode);
+      this.cdRef.markForCheck();
+
+    }
+  }
+
   toggleEditMode() {
 
     if (!this.toggleOnViewClick) return;
+    if (!this.canEdit) return;
+    if (this.control != null && this.control.invalid) return;
 
     this.isEditMode = !this.isEditMode;
     this.editMode.emit(this.isEditMode);

@@ -13,7 +13,7 @@ import { StatCount } from '../statistics/_models/stat-count';
 import { PublicationStatus } from '../_models/metadata/publication-status';
 import { MangaFormat } from '../_models/manga-format';
 import { TextResonse } from '../_types/text-response';
-import {TranslocoService} from "@ngneat/transloco";
+import {TranslocoService} from "@jsverse/transloco";
 import {KavitaPlusMetadataBreakdown} from "../statistics/_models/kavitaplus-metadata-breakdown";
 import {throttleTime} from "rxjs/operators";
 import {DEBOUNCE_TIME} from "../shared/_services/download.service";
@@ -133,9 +133,5 @@ export class StatisticsService {
 
   getDayBreakdown( userId = 0) {
     return this.httpClient.get<Array<StatCount<DayOfWeek>>>(this.baseUrl + 'stats/day-breakdown?userId=' + userId);
-  }
-
-  getKavitaPlusMetadataBreakdown() {
-    return this.httpClient.get<KavitaPlusMetadataBreakdown>(this.baseUrl + 'stats/kavitaplus-metadata-breakdown');
   }
 }

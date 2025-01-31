@@ -1,5 +1,5 @@
 import {DOCUMENT} from '@angular/common';
-import {HttpClient} from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import {
   DestroyRef,
   inject,
@@ -19,13 +19,14 @@ import {SiteTheme, ThemeProvider} from '../_models/preferences/site-theme';
 import {TextResonse} from '../_types/text-response';
 import {EVENTS, MessageHubService} from './message-hub.service';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
-import {translate} from "@ngneat/transloco";
+import {translate} from "@jsverse/transloco";
 import {DownloadableSiteTheme} from "../_models/theme/downloadable-site-theme";
 import {NgxFileDropEntry} from "ngx-file-drop";
 import {SiteThemeUpdatedEvent} from "../_models/events/site-theme-updated-event";
 import {NavigationEnd, Router} from "@angular/router";
 import {ColorscapeService} from "./colorscape.service";
 import {ColorScape} from "../_models/theme/colorscape";
+import {debounceTime} from "rxjs/operators";
 
 @Injectable({
   providedIn: 'root'
@@ -57,12 +58,6 @@ export class ThemeService {
   messageHub: MessageHubService, private domSanitizer: DomSanitizer, private confirmService: ConfirmService, private toastr: ToastrService,
   private router: Router) {
     this.renderer = rendererFactory.createRenderer(null, null);
-
-    this.router.events.pipe(
-      filter(event => event instanceof NavigationEnd)
-    ).subscribe(() => {
-      this.setColorScape('');
-    });
 
     messageHub.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(message => {
 
@@ -167,10 +162,6 @@ export class ThemeService {
     }));
   }
 
-  scan() {
-    return this.httpClient.post(this.baseUrl + 'theme/scan', {});
-  }
-
   /**
    * Sets the book theme on the body tag so css variable overrides can take place
    * @param selector brtheme- prefixed string
@@ -199,7 +190,7 @@ export class ThemeService {
    * @param entity
    * @param id
    */
-  refreshColorScape(entity: 'series' | 'volume' | 'chapter', id: number) {
+  refreshColorScape(entity: 'series' | 'volume' | 'chapter' | 'person', id: number) {
     return this.httpClient.get<ColorScape>(`${this.baseUrl}colorscape/${entity}?id=${id}`).pipe(tap((cs) => {
       this.setColorScape(cs.primary || '', cs.secondary);
     }));

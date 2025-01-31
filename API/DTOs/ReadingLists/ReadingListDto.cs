@@ -19,8 +19,13 @@ public class ReadingListDto : IHasCoverImage
     /// </summary>
     public string? CoverImage { get; set; } = string.Empty;
 
-    public string PrimaryColor { get; set; }
-    public string SecondaryColor { get; set; }
+    public string PrimaryColor { get; set; } = string.Empty;
+    public string SecondaryColor { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of Items in the Reading List
+    /// </summary>
+    public int ItemCount { get; set; }
 
     /// <summary>
     /// Minimum Year the Reading List starts
@@ -38,5 +43,11 @@ public class ReadingListDto : IHasCoverImage
     /// Maximum Month the Reading List starts
     /// </summary>
     public int EndingMonth { get; set; }
+
+    public void ResetColorScape()
+    {
+        PrimaryColor = string.Empty;
+        SecondaryColor = string.Empty;
+    }
 
 }

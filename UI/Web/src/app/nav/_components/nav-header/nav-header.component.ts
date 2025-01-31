@@ -1,23 +1,23 @@
-import {AsyncPipe, DOCUMENT, NgIf, NgOptimizedImage} from '@angular/common';
+import {AsyncPipe, DOCUMENT, NgOptimizedImage, NgTemplateOutlet} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   DestroyRef,
-  ElementRef,
+  ElementRef, HostListener,
   inject,
   Inject,
   OnInit,
   ViewChild
 } from '@angular/core';
 import {NavigationEnd, Router, RouterLink, RouterLinkActive} from '@angular/router';
-import {fromEvent} from 'rxjs';
+import {BehaviorSubject, fromEvent, Observable} from 'rxjs';
 import {debounceTime, distinctUntilChanged, filter, tap} from 'rxjs/operators';
 import {Chapter} from 'src/app/_models/chapter';
 import {UserCollection} from 'src/app/_models/collection-tag';
 import {Library} from 'src/app/_models/library/library';
 import {MangaFile} from 'src/app/_models/manga-file';
-import {PersonRole} from 'src/app/_models/metadata/person';
+import {Person, PersonRole} from 'src/app/_models/metadata/person';
 import {ReadingList} from 'src/app/_models/reading-list';
 import {SearchResult} from 'src/app/_models/search/search-result';
 import {SearchResultGroup} from 'src/app/_models/search/search-result-group';
@@ -29,12 +29,12 @@ import {SearchService} from 'src/app/_services/search.service';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {SentenceCasePipe} from '../../../_pipes/sentence-case.pipe';
 import {PersonRolePipe} from '../../../_pipes/person-role.pipe';
-import {NgbDropdown, NgbDropdownItem, NgbDropdownMenu, NgbDropdownToggle} from '@ng-bootstrap/ng-bootstrap';
+import {NgbDropdown, NgbDropdownItem, NgbDropdownMenu, NgbDropdownToggle, NgbModal} from '@ng-bootstrap/ng-bootstrap';
 import {EventsWidgetComponent} from '../events-widget/events-widget.component';
 import {SeriesFormatComponent} from '../../../shared/series-format/series-format.component';
 import {ImageComponent} from '../../../shared/image/image.component';
 import {GroupedTypeaheadComponent, SearchEvent} from '../grouped-typeahead/grouped-typeahead.component';
-import {TranslocoDirective} from "@ngneat/transloco";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {FilterUtilitiesService} from "../../../shared/_services/filter-utilities.service";
 import {FilterStatement} from "../../../_models/metadata/v2/filter-statement";
 import {FilterField} from "../../../_models/metadata/v2/filter-field";
@@ -48,6 +48,10 @@ import {PromotedIconComponent} from "../../../shared/_components/promoted-icon/p
 import {SettingsTabId} from "../../../sidenav/preference-nav/preference-nav.component";
 import {Breakpoint, UtilityService} from "../../../shared/_services/utility.service";
 import {WikiLink} from "../../../_models/wiki";
+import {
+  GenericListModalComponent
+} from "../../../statistics/_components/_modals/generic-list-modal/generic-list-modal.component";
+import {NavLinkModalComponent} from "../nav-link-modal/nav-link-modal.component";
 
 @Component({
     selector: 'app-nav-header',
@@ -57,7 +61,7 @@ import {WikiLink} from "../../../_models/wiki";
     standalone: true,
   imports: [RouterLink, RouterLinkActive, NgOptimizedImage, GroupedTypeaheadComponent, ImageComponent,
     SeriesFormatComponent, EventsWidgetComponent, NgbDropdown, NgbDropdownToggle, NgbDropdownMenu, NgbDropdownItem,
-    AsyncPipe, PersonRolePipe, SentenceCasePipe, TranslocoDirective, ProviderImagePipe, ProviderNamePipe, CollectionOwnerComponent, PromotedIconComponent]
+    AsyncPipe, PersonRolePipe, SentenceCasePipe, TranslocoDirective, ProviderImagePipe, ProviderNamePipe, CollectionOwnerComponent, PromotedIconComponent, NgTemplateOutlet]
 })
 export class NavHeaderComponent implements OnInit {
 
@@ -71,6 +75,7 @@ export class NavHeaderComponent implements OnInit {
   protected readonly navService = inject(NavService);
   protected readonly imageService = inject(ImageService);
   protected readonly utilityService = inject(UtilityService);
+  protected readonly modalService = inject(NgbModal);
 
   protected readonly FilterField = FilterField;
   protected readonly WikiLink = WikiLink;
@@ -89,6 +94,15 @@ export class NavHeaderComponent implements OnInit {
   backToTopNeeded = false;
   searchFocused: boolean = false;
   scrollElem: HTMLElement;
+
+  breakpointSource = new BehaviorSubject<Breakpoint>(this.utilityService.getActiveBreakpoint());
+  breakpoint$: Observable<Breakpoint> = this.breakpointSource.asObservable();
+
+  @HostListener('window:resize', ['$event'])
+  @HostListener('window:orientationchange', ['$event'])
+  onResize(){
+    this.breakpointSource.next(this.utilityService.getActiveBreakpoint());
+  }
 
   constructor(@Inject(DOCUMENT) private document: Document) {
       this.scrollElem = this.document.body;
@@ -134,10 +148,6 @@ export class NavHeaderComponent implements OnInit {
     this.document.getElementById('content')?.focus();
   }
 
-
-
-
-
   onChangeSearch(evt: SearchEvent) {
       this.isLoading = true;
       this.searchTerm = evt.value.trim();
@@ -168,56 +178,9 @@ export class NavHeaderComponent implements OnInit {
     this.goTo({field, comparison: FilterComparison.Equal, value: value + ''});
   }
 
-  goToPerson(role: PersonRole, filter: any) {
+  goToPerson(person: Person) {
     this.clearSearch();
-    filter = filter + '';
-    switch(role) {
-      case PersonRole.Other:
-        break;
-      case PersonRole.Writer:
-        this.goTo({field: FilterField.Writers, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Artist:
-        this.goTo({field: FilterField.CoverArtist, comparison: FilterComparison.Equal, value: filter}); // TODO: What is this supposed to be?
-        break;
-      case PersonRole.Character:
-        this.goTo({field: FilterField.Characters, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Colorist:
-        this.goTo({field: FilterField.Colorist, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Editor:
-        this.goTo({field: FilterField.Editor, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Inker:
-        this.goTo({field: FilterField.Inker, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.CoverArtist:
-        this.goTo({field: FilterField.CoverArtist, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Letterer:
-        this.goTo({field: FilterField.Letterer, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Penciller:
-        this.goTo({field: FilterField.Penciller, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Publisher:
-        this.goTo({field: FilterField.Publisher, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Imprint:
-        this.goTo({field: FilterField.Imprint, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Team:
-        this.goTo({field: FilterField.Team, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Location:
-        this.goTo({field: FilterField.Location, comparison: FilterComparison.Equal, value: filter});
-        break;
-      case PersonRole.Translator:
-        this.goTo({field: FilterField.Translators, comparison: FilterComparison.Equal, value: filter});
-        break;
-
-    }
+    this.router.navigate(['person', person.name]);
   }
 
   clearSearch() {
@@ -286,8 +249,14 @@ export class NavHeaderComponent implements OnInit {
     this.cdRef.markForCheck();
   }
 
-  hideSideNav() {
+  toggleSideNav(event: any) {
+    event.stopPropagation();
     this.navService.toggleSideNav();
+  }
+
+  openLinkSelectionMenu() {
+    const ref = this.modalService.open(NavLinkModalComponent, {fullscreen: 'sm'});
+    ref.componentInstance.logoutFn = this.logout.bind(this);
   }
 
 }

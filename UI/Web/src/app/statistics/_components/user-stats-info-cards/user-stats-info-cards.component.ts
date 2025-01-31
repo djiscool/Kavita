@@ -8,7 +8,7 @@ import { DecimalPipe } from '@angular/common';
 import { IconAndTitleComponent } from '../../../shared/icon-and-title/icon-and-title.component';
 import {AccountService} from "../../../_services/account.service";
 import {CompactNumberPipe} from "../../../_pipes/compact-number.pipe";
-import {translate, TranslocoDirective} from "@ngneat/transloco";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
 
 @Component({
     selector: 'app-user-stats-info-cards',
@@ -35,7 +35,7 @@ export class UserStatsInfoCardsComponent {
       const ref = this.modalService.open(GenericListModalComponent, { scrollable: true });
       ref.componentInstance.items = yearCounts.map(t => {
         const countStr = translate('user-stats-info-cards.pages-count', {num: numberPipe.transform(t.value)});
-        return `${t.name}: ${countStr})`;
+        return `${t.name}: ${countStr}s`;
       });
       ref.componentInstance.title = translate('user-stats-info-cards.pages-read-by-year-title');
     });
@@ -47,7 +47,7 @@ export class UserStatsInfoCardsComponent {
       const ref = this.modalService.open(GenericListModalComponent, { scrollable: true });
       ref.componentInstance.items = yearCounts.map(t => {
         const countStr = translate('user-stats-info-cards.words-count', {num: numberPipe.transform(t.value)});
-        return `${t.name}: ${countStr})`;
+        return `${t.name}: ${countStr}`;
       });
       ref.componentInstance.title = translate('user-stats-info-cards.words-read-by-year-title');
     });

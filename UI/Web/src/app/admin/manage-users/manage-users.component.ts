@@ -13,7 +13,7 @@ import {EditUserComponent} from '../edit-user/edit-user.component';
 import {Router} from '@angular/router';
 import {TagBadgeComponent} from '../../shared/tag-badge/tag-badge.component';
 import {AsyncPipe, DatePipe, NgClass, NgIf, TitleCasePipe} from '@angular/common';
-import {translate, TranslocoModule, TranslocoService} from "@ngneat/transloco";
+import {translate, TranslocoModule, TranslocoService} from "@jsverse/transloco";
 import {DefaultDatePipe} from "../../_pipes/default-date.pipe";
 import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
 import {ReadMoreComponent} from "../../shared/read-more/read-more.component";
@@ -22,6 +22,7 @@ import {makeBindingParser} from "@angular/compiler";
 import {LoadingComponent} from "../../shared/loading/loading.component";
 import {TimeAgoPipe} from "../../_pipes/time-ago.pipe";
 import {SentenceCasePipe} from "../../_pipes/sentence-case.pipe";
+import {DefaultModalOptions} from "../../_models/default-modal-options";
 
 @Component({
     selector: 'app-manage-users',
@@ -87,7 +88,7 @@ export class ManageUsersComponent implements OnInit {
   }
 
   openEditUser(member: Member) {
-    const modalRef = this.modalService.open(EditUserComponent, { scrollable: true, size: 'xl', fullscreen: 'md' });
+    const modalRef = this.modalService.open(EditUserComponent, DefaultModalOptions);
     modalRef.componentInstance.member = member;
     modalRef.closed.subscribe(() => {
       this.loadMembers();
@@ -107,7 +108,7 @@ export class ManageUsersComponent implements OnInit {
   }
 
   inviteUser() {
-    const modalRef = this.modalService.open(InviteUserComponent, {size: 'xl'});
+    const modalRef = this.modalService.open(InviteUserComponent, DefaultModalOptions);
     modalRef.closed.subscribe((successful: boolean) => {
       this.loadMembers();
     });
@@ -133,7 +134,7 @@ export class ManageUsersComponent implements OnInit {
   }
 
   updatePassword(member: Member) {
-    const modalRef = this.modalService.open(ResetPasswordModalComponent);
+    const modalRef = this.modalService.open(ResetPasswordModalComponent, DefaultModalOptions);
     modalRef.componentInstance.member = member;
   }
 

@@ -19,7 +19,7 @@ import {
 import {SideNavStream} from "../../../_models/sidenav/sidenav-stream";
 import {NavService} from "../../../_services/nav.service";
 import {DashboardStreamListItemComponent} from "../dashboard-stream-list-item/dashboard-stream-list-item.component";
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {SidenavStreamListItemComponent} from "../sidenav-stream-list-item/sidenav-stream-list-item.component";
 import {ExternalSourceService} from "../../../_services/external-source.service";
 import {ExternalSource} from "../../../_models/sidenav/external-source";
@@ -106,22 +106,6 @@ export class CustomizeSidenavStreamsComponent implements OnDestroy {
           this.bulkSelectionService.deselectAll();
           this.cdRef.markForCheck();
         });
-  }
-
-
-  @HostListener('document:keydown.shift', ['$event'])
-  handleKeypress(event: KeyboardEvent) {
-    if (event.key === KEY_CODES.SHIFT) {
-      this.bulkSelectionService.isShiftDown = true;
-    }
-  }
-
-  @HostListener('document:keyup.shift', ['$event'])
-  handleKeyUp(event: KeyboardEvent) {
-    if (event.key === KEY_CODES.SHIFT) {
-      this.bulkSelectionService.isShiftDown = false;
-      this.cdRef.markForCheck();
-    }
   }
 
   constructor() {

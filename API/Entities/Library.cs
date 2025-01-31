@@ -44,9 +44,6 @@ public class Library : IEntityDate, IHasCoverImage
     public bool AllowScrobbling { get; set; } = true;
 
 
-
-
-
     public DateTime Created { get; set; }
     public DateTime LastModified { get; set; }
     public DateTime CreatedUtc { get; set; }
@@ -79,5 +76,11 @@ public class Library : IEntityDate, IHasCoverImage
         {
             LastScanned = (DateTime) time;
         }
+    }
+
+    public void ResetColorScape()
+    {
+        PrimaryColor = string.Empty;
+        SecondaryColor = string.Empty;
     }
 }

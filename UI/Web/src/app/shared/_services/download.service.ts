@@ -19,13 +19,14 @@ import { PageBookmark } from 'src/app/_models/readers/page-bookmark';
 import {switchMap, take, takeWhile, throttleTime} from 'rxjs/operators';
 import { AccountService } from 'src/app/_services/account.service';
 import { BytesPipe } from 'src/app/_pipes/bytes.pipe';
-import {translate} from "@ngneat/transloco";
+import {translate} from "@jsverse/transloco";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {SAVER, Saver} from "../../_providers/saver.provider";
 import {UtilityService} from "./utility.service";
 import {UserCollection} from "../../_models/collection-tag";
 import {RecentlyAddedItem} from "../../_models/recently-added-item";
 import {NextExpectedChapter} from "../../_models/series-detail/next-expected-chapter";
+import {BrowsePerson} from "../../_models/person/browse-person";
 
 export const DEBOUNCE_TIME = 100;
 
@@ -360,24 +361,28 @@ export class DownloadService {
     }
   }
 
-  mapToEntityType(events: DownloadEvent[], entity: Series | Volume | Chapter | UserCollection | PageBookmark | RecentlyAddedItem | NextExpectedChapter) {
+  mapToEntityType(events: DownloadEvent[], entity: Series | Volume | Chapter | UserCollection | PageBookmark | RecentlyAddedItem | NextExpectedChapter | BrowsePerson) {
     if(this.utilityService.isSeries(entity)) {
       return events.find(e => e.entityType === 'series' && e.id == entity.id
         && e.subTitle === this.downloadSubtitle('series', (entity as Series))) || null;
     }
+
     if(this.utilityService.isVolume(entity)) {
       return events.find(e => e.entityType === 'volume' && e.id == entity.id
         && e.subTitle === this.downloadSubtitle('volume', (entity as Volume))) || null;
     }
+
     if(this.utilityService.isChapter(entity)) {
       return events.find(e => e.entityType === 'chapter'  && e.id == entity.id
         && e.subTitle === this.downloadSubtitle('chapter', (entity as Chapter))) || null;
     }
+
     // Is PageBookmark[]
     if(entity.hasOwnProperty('length')) {
       return events.find(e => e.entityType === 'bookmark'
         && e.subTitle === this.downloadSubtitle('bookmark', [(entity as PageBookmark)])) || null;
     }
+
     return null;
   }
 }

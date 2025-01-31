@@ -19,7 +19,7 @@ import { KEY_CODES } from 'src/app/shared/_services/utility.service';
 import { SearchResultGroup } from 'src/app/_models/search/search-result-group';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {AsyncPipe, NgClass, NgTemplateOutlet} from '@angular/common';
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {LoadingComponent} from "../../../shared/loading/loading.component";
 import {map, startWith, tap} from "rxjs";
 import {AccountService} from "../../../_services/account.service";
@@ -118,9 +118,8 @@ export class GroupedTypeaheadComponent implements OnInit {
 
 
   @HostListener('window:click', ['$event'])
-  handleDocumentClick(event: any) {
+  handleDocumentClick(event: MouseEvent) {
     this.close();
-
   }
 
   @HostListener('window:keydown', ['$event'])
@@ -197,7 +196,7 @@ export class GroupedTypeaheadComponent implements OnInit {
   }
 
   toggleIncludeFiles(val: boolean) {
-    const firstRun = val === false && val === this.includeChapterAndFiles;
+    const firstRun = !val && val === this.includeChapterAndFiles;
 
     this.includeChapterAndFiles = val;
     this.inputChanged.emit({value: this.searchTerm, includeFiles: this.includeChapterAndFiles});
@@ -226,7 +225,7 @@ export class GroupedTypeaheadComponent implements OnInit {
   close(event?: FocusEvent) {
     if (event) {
       // If the user is tabbing out of the input field, check if there are results first before closing
-      if (this.hasData) {
+      if (this.hasData || this.searchTerm) {
         return;
       }
     }

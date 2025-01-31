@@ -25,7 +25,7 @@ import {UploadService} from 'src/app/_services/upload.service';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {DatePipe, DecimalPipe, NgIf, NgTemplateOutlet} from "@angular/common";
 import {CoverImageChooserComponent} from "../../cover-image-chooser/cover-image-chooser.component";
-import {translate, TranslocoDirective} from "@ngneat/transloco";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {ScrobbleProvider} from "../../../_services/scrobbling.service";
 import {FilterPipe} from "../../../_pipes/filter.pipe";
 import {AccountService} from "../../../_services/account.service";
@@ -37,6 +37,7 @@ import {MangaFormatPipe} from "../../../_pipes/manga-format.pipe";
 import {SentenceCasePipe} from "../../../_pipes/sentence-case.pipe";
 import {TagBadgeComponent} from "../../../shared/tag-badge/tag-badge.component";
 import {SelectionModel} from "../../../typeahead/_models/selection-model";
+import {UtcToLocalTimePipe} from "../../../_pipes/utc-to-local-time.pipe";
 
 
 enum TabID {
@@ -50,7 +51,7 @@ enum TabID {
   selector: 'app-edit-collection-tags',
   standalone: true,
   imports: [NgbNav, NgbNavItem, NgbNavLink, NgbNavContent, ReactiveFormsModule, FormsModule, NgbPagination,
-    CoverImageChooserComponent, NgbNavOutlet, NgbTooltip, TranslocoDirective, NgTemplateOutlet, FilterPipe, DatePipe, DefaultDatePipe, ReadMoreComponent, SafeHtmlPipe, SafeUrlPipe, MangaFormatPipe, NgIf, SentenceCasePipe, TagBadgeComponent, DecimalPipe],
+    CoverImageChooserComponent, NgbNavOutlet, NgbTooltip, TranslocoDirective, NgTemplateOutlet, FilterPipe, DatePipe, DefaultDatePipe, ReadMoreComponent, SafeHtmlPipe, SafeUrlPipe, MangaFormatPipe, NgIf, SentenceCasePipe, TagBadgeComponent, DecimalPipe, UtcToLocalTimePipe],
   templateUrl: './edit-collection-tags.component.html',
   styleUrls: ['./edit-collection-tags.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush

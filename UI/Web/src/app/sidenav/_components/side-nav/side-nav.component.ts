@@ -23,12 +23,14 @@ import {AsyncPipe, NgClass} from "@angular/common";
 import {SideNavItemComponent} from "../side-nav-item/side-nav-item.component";
 import {FilterPipe} from "../../../_pipes/filter.pipe";
 import {FormsModule} from "@angular/forms";
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {CardActionablesComponent} from "../../../_single-module/card-actionables/card-actionables.component";
 import {SentenceCasePipe} from "../../../_pipes/sentence-case.pipe";
 import {SideNavStream} from "../../../_models/sidenav/sidenav-stream";
 import {SideNavStreamType} from "../../../_models/sidenav/sidenav-stream-type.enum";
 import {WikiLink} from "../../../_models/wiki";
+import {SettingsTabId} from "../../preference-nav/preference-nav.component";
+import {LicenseService} from "../../../_services/license.service";
 
 @Component({
   selector: 'app-side-nav',
@@ -40,19 +42,22 @@ import {WikiLink} from "../../../_models/wiki";
 })
 export class SideNavComponent implements OnInit {
 
-  protected readonly SideNavStreamType = SideNavStreamType;
   private readonly router = inject(Router);
-  private readonly utilityService = inject(UtilityService);
+  protected readonly utilityService = inject(UtilityService);
   private readonly messageHub = inject(MessageHubService);
   private readonly actionService = inject(ActionService);
   public readonly navService = inject(NavService);
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly imageService = inject(ImageService);
   public readonly accountService = inject(AccountService);
+  public readonly licenseService = inject(LicenseService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly actionFactoryService = inject(ActionFactoryService);
+
   protected readonly WikiLink = WikiLink;
   protected readonly ItemLimit = 10;
+  protected readonly SideNavStreamType = SideNavStreamType;
+  protected readonly SettingsTabId = SettingsTabId;
 
   cachedData: SideNavStream[] | null = null;
   actions: ActionItem<Library>[] = this.actionFactoryService.getLibraryActions(this.handleAction.bind(this));
@@ -63,6 +68,7 @@ export class SideNavComponent implements OnInit {
   }
   showAll: boolean = false;
   totalSize = 0;
+  isReadOnly = false;
 
   private showAllSubject = new BehaviorSubject<boolean>(false);
   showAll$ = this.showAllSubject.asObservable();
@@ -129,8 +135,13 @@ export class SideNavComponent implements OnInit {
 
 
   constructor() {
+    // Ensure that on mobile, we are collapsed by default
+    if (this.utilityService.getActiveBreakpoint() < Breakpoint.Tablet) {
+      this.navService.collapseSideNav(true);
+    }
+
     this.collapseSideNavOnMobileNav$.subscribe(() => {
-        this.navService.toggleSideNav();
+        this.navService.collapseSideNav(false);
         this.cdRef.markForCheck();
     });
   }
@@ -138,6 +149,8 @@ export class SideNavComponent implements OnInit {
   ngOnInit(): void {
     this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
       if (!user) return;
+      this.isReadOnly = this.accountService.hasReadOnlyRole(user!);
+      this.cdRef.markForCheck();
       this.loadDataSubject.next();
     });
   }
@@ -148,10 +161,10 @@ export class SideNavComponent implements OnInit {
         await this.actionService.scanLibrary(library);
         break;
       case(Action.RefreshMetadata):
-        await this.actionService.refreshMetadata(library);
+        await this.actionService.refreshLibraryMetadata(library);
         break;
       case(Action.GenerateColorScape):
-        await this.actionService.refreshMetadata(library, undefined, false);
+        await this.actionService.refreshLibraryMetadata(library, undefined, false);
         break;
       case (Action.AnalyzeFiles):
         await this.actionService.analyzeFiles(library);
@@ -206,4 +219,6 @@ export class SideNavComponent implements OnInit {
     this.cdRef.markForCheck();
     this.showAllSubject.next(false);
   }
+
+  protected readonly Breakpoint = Breakpoint;
 }

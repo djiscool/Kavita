@@ -45,28 +45,27 @@ public static class ApplicationServiceExtensions
         services.AddScoped<IBookmarkService, BookmarkService>();
         services.AddScoped<IThemeService, ThemeService>();
         services.AddScoped<ISeriesService, SeriesService>();
-        services.AddScoped<IProcessSeries, ProcessSeries>();
         services.AddScoped<IReadingListService, ReadingListService>();
         services.AddScoped<IDeviceService, DeviceService>();
         services.AddScoped<IStatisticService, StatisticService>();
         services.AddScoped<IMediaErrorService, MediaErrorService>();
         services.AddScoped<IMediaConversionService, MediaConversionService>();
-        services.AddScoped<IRecommendationService, RecommendationService>();
         services.AddScoped<IStreamService, StreamService>();
 
         services.AddScoped<IScannerService, ScannerService>();
+        services.AddScoped<IProcessSeries, ProcessSeries>();
         services.AddScoped<IMetadataService, MetadataService>();
         services.AddScoped<IWordCountAnalyzerService, WordCountAnalyzerService>();
         services.AddScoped<ILibraryWatcher, LibraryWatcher>();
         services.AddScoped<ITachiyomiService, TachiyomiService>();
         services.AddScoped<ICollectionTagService, CollectionTagService>();
-        services.AddScoped<ITagManagerService, TagManagerService>();
 
         services.AddScoped<IFileSystem, FileSystem>();
         services.AddScoped<IDirectoryService, DirectoryService>();
         services.AddScoped<IEventHub, EventHub>();
         services.AddScoped<IPresenceTracker, PresenceTracker>();
         services.AddScoped<IImageService, ImageService>();
+        services.AddScoped<ICoverDbService, CoverDbService>();
 
         services.AddScoped<ILocalizationService, LocalizationService>();
 
@@ -75,6 +74,7 @@ public static class ApplicationServiceExtensions
         services.AddScoped<ILicenseService, LicenseService>();
         services.AddScoped<IExternalMetadataService, ExternalMetadataService>();
         services.AddScoped<ISmartCollectionSyncService, SmartCollectionSyncService>();
+        services.AddScoped<IWantToReadSyncService, WantToReadSyncService>();
 
         services.AddSqLite();
         services.AddSignalR(opt => opt.EnableDetailedErrors = true);
@@ -82,12 +82,13 @@ public static class ApplicationServiceExtensions
         services.AddEasyCaching(options =>
         {
             options.UseInMemory(EasyCacheProfiles.Favicon);
-            options.UseInMemory(EasyCacheProfiles.License);
             options.UseInMemory(EasyCacheProfiles.Library);
             options.UseInMemory(EasyCacheProfiles.RevokedJwt);
 
             // KavitaPlus stuff
             options.UseInMemory(EasyCacheProfiles.KavitaPlusExternalSeries);
+            options.UseInMemory(EasyCacheProfiles.License);
+            options.UseInMemory(EasyCacheProfiles.LicenseInfo);
         });
 
         services.AddMemoryCache(options =>

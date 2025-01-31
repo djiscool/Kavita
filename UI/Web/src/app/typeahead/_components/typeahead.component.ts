@@ -25,7 +25,7 @@ import { KEY_CODES } from 'src/app/shared/_services/utility.service';
 import { TypeaheadSettings } from '../_models/typeahead-settings';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {TagBadgeComponent} from "../../shared/tag-badge/tag-badge.component";
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {SelectionModel} from "../_models/selection-model";
 
 
@@ -252,6 +252,7 @@ export class TypeaheadComponent implements OnInit {
       case KEY_CODES.ESC_KEY:
         this.hasFocus = false;
         event.stopPropagation();
+        event.preventDefault();
         break;
       default:
         break;

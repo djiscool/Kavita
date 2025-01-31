@@ -47,6 +47,14 @@ const routes: Routes = [
         loadChildren: () => import('./_routes/dashboard-routing.module').then(m => m.routes)
       },
       {
+        path: 'person',
+        loadChildren: () => import('./_routes/person-detail-routing.module').then(m => m.routes)
+      },
+      {
+        path: 'browse/authors',
+        loadChildren: () => import('./_routes/browse-authors-routing.module').then(m => m.routes)
+      },
+      {
         path: 'library',
         runGuardsAndResolvers: 'always',
         canActivate: [AuthGuard, LibraryAccessGuard],
@@ -60,6 +68,16 @@ const routes: Routes = [
             path: ':libraryId/series/:seriesId',
             pathMatch: 'full',
             loadComponent: () => import('../app/series-detail/_components/series-detail/series-detail.component').then(c => c.SeriesDetailComponent)
+          },
+          {
+            path: ':libraryId/series/:seriesId/chapter/:chapterId',
+            pathMatch: 'full',
+            loadComponent: () => import('./chapter-detail/chapter-detail.component').then(c => c.ChapterDetailComponent)
+          },
+          {
+            path: ':libraryId/series/:seriesId/volume/:volumeId',
+            pathMatch: 'full',
+            loadComponent: () => import('./volume-detail/volume-detail.component').then(c => c.VolumeDetailComponent)
           },
           {
             path: ':libraryId/series/:seriesId/manga',

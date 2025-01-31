@@ -1,13 +1,15 @@
 import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, Input, OnInit} from '@angular/core';
 import {Chapter} from "../../_models/chapter";
-import {AsyncPipe, NgForOf, TitleCasePipe} from "@angular/common";
+import {AsyncPipe, DatePipe, NgForOf, TitleCasePipe} from "@angular/common";
 import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
 import {UtcToLocalTimePipe} from "../../_pipes/utc-to-local-time.pipe";
 import {FullProgress} from "../../_models/readers/full-progress";
 import {ReaderService} from "../../_services/reader.service";
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators} from "@angular/forms";
 import {SentenceCasePipe} from "../../_pipes/sentence-case.pipe";
+import {DefaultDatePipe} from "../../_pipes/default-date.pipe";
+import {ColumnMode, NgxDatatableModule} from "@siemens/ngx-datatable";
 
 @Component({
   selector: 'app-edit-chapter-progress',
@@ -20,7 +22,10 @@ import {SentenceCasePipe} from "../../_pipes/sentence-case.pipe";
     UtcToLocalTimePipe,
     TranslocoDirective,
     ReactiveFormsModule,
-    SentenceCasePipe
+    SentenceCasePipe,
+    DatePipe,
+    DefaultDatePipe,
+    NgxDatatableModule
   ],
   templateUrl: './edit-chapter-progress.component.html',
   styleUrl: './edit-chapter-progress.component.scss',
@@ -79,4 +84,5 @@ export class EditChapterProgressComponent implements OnInit {
     this.cdRef.markForCheck();
   }
 
+  protected readonly ColumnMode = ColumnMode;
 }

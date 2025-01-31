@@ -1,18 +1,11 @@
-import {
-  ChangeDetectionStrategy,
-  ChangeDetectorRef,
-  Component,
-  DestroyRef,
-  inject,
-  Input,
-  OnInit
-} from '@angular/core';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, inject, Input, OnInit} from '@angular/core';
 import {NavigationEnd, Router, RouterLink} from '@angular/router';
 import {filter, map, tap} from 'rxjs';
-import { NavService } from 'src/app/_services/nav.service';
+import {NavService} from 'src/app/_services/nav.service';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {AsyncPipe, NgClass, NgOptimizedImage, NgTemplateOutlet} from "@angular/common";
 import {ImageComponent} from "../../../shared/image/image.component";
+import {Breakpoint, UtilityService} from "../../../shared/_services/utility.service";
 
 
 @Component({
@@ -28,6 +21,7 @@ export class SideNavItemComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly cdRef = inject(ChangeDetectorRef);
   protected readonly navService = inject(NavService);
+  protected readonly utilityService = inject(UtilityService);
 
   /**
    * Id for automatic scrolling to.
@@ -78,10 +72,12 @@ export class SideNavItemComponent implements OnInit {
 
   constructor() {
     this.router.events
-      .pipe(filter(event => event instanceof NavigationEnd),
-            takeUntilDestroyed(this.destroyRef),
-            map(evt => evt as NavigationEnd),
-            tap((evt: NavigationEnd) => this.triggerHighlightCheck(evt.url))
+      .pipe(
+        filter(event => event instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef),
+        map(evt => evt as NavigationEnd),
+        tap((evt: NavigationEnd) => this.triggerHighlightCheck(evt.url)),
+        tap(_ => this.collapseNavIfApplicable())
       ).subscribe();
   }
 
@@ -94,6 +90,7 @@ export class SideNavItemComponent implements OnInit {
   triggerHighlightCheck(routeUrl: string) {
     const [url, queryParams] = routeUrl.split('?');
     const [page, fragment = ''] = url.split('#');
+
     this.updateHighlight(page, queryParams, url.includes('#') ? fragment : undefined);
   }
 
@@ -105,7 +102,7 @@ export class SideNavItemComponent implements OnInit {
       return;
     }
 
-    if (!page.endsWith('/') && !queryParams && this.fragment === undefined) {
+    if (!page.endsWith('/') && !queryParams && this.fragment === undefined && queryParams === undefined) {
       page = page + '/';
     }
 
@@ -117,8 +114,9 @@ export class SideNavItemComponent implements OnInit {
       fragmentEqual = true;
     }
 
+    const queryParamsEqual = this.queryParams === queryParams;
 
-    if (this.comparisonMethod === 'equals' && page === this.link && fragmentEqual) {
+    if (this.comparisonMethod === 'equals' && page === this.link && fragmentEqual && queryParamsEqual) {
       this.highlighted = true;
       this.cdRef.markForCheck();
       return;
@@ -141,6 +139,8 @@ export class SideNavItemComponent implements OnInit {
   }
 
   openLink() {
+    this.collapseNavIfApplicable();
+
     if (Object.keys(this.queryParams).length !== 0) {
       this.router.navigateByUrl(this.link + '?' + this.queryParams);
       return;
@@ -150,6 +150,13 @@ export class SideNavItemComponent implements OnInit {
     }
 
     this.router.navigateByUrl(this.link!);
+  }
+
+  // If on mobile, automatically collapse the side nav after making a selection
+  collapseNavIfApplicable() {
+    if (this.utilityService.getActiveBreakpoint() < Breakpoint.Tablet) {
+      this.navService.collapseSideNav(true);
+    }
   }
 
 }
