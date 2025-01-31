@@ -770,6 +770,7 @@ export class ActionFactoryService {
       {
         action: Action.Delete,
         title: 'Delete',
+        description: 'delete-tooltip',
         callback: this.dummyCallback,
         requiresAdmin: true,
         children: [],
