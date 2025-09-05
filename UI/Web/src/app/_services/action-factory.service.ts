@@ -943,6 +943,8 @@ export class ActionFactoryService {
         callback: this.dummyCallback,
         requiresAdmin: true,
         children: [],
+        requiredRoles: [],
+        shouldRender: this.dummyShouldRender
       }
     ];
 
