@@ -1,43 +1,35 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  HostListener,
-  inject,
-  OnInit
-} from '@angular/core';
+import {ChangeDetectionStrategy, Component, DestroyRef, HostListener, inject, OnInit} from '@angular/core';
 import {NavigationStart, Router, RouterOutlet} from '@angular/router';
-import {map, shareReplay, take, tap} from 'rxjs/operators';
+import {map, shareReplay, take} from 'rxjs/operators';
 import {AccountService} from './_services/account.service';
 import {LibraryService} from './_services/library.service';
 import {NavService} from './_services/nav.service';
 import {NgbModal, NgbModalConfig, NgbOffcanvas, NgbRatingConfig} from '@ng-bootstrap/ng-bootstrap';
 import {AsyncPipe, DOCUMENT, NgClass} from '@angular/common';
-import {filter, interval, Observable, switchMap} from 'rxjs';
+import {filter, Observable} from 'rxjs';
 import {ThemeService} from "./_services/theme.service";
 import {SideNavComponent} from './sidenav/_components/side-nav/side-nav.component';
 import {NavHeaderComponent} from "./nav/_components/nav-header/nav-header.component";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {ServerService} from "./_services/server.service";
-import {OutOfDateModalComponent} from "./announcements/_components/out-of-date-modal/out-of-date-modal.component";
 import {PreferenceNavComponent} from "./sidenav/preference-nav/preference-nav.component";
 import {Breakpoint, UtilityService} from "./shared/_services/utility.service";
 import {TranslocoService} from "@jsverse/transloco";
-import {User} from "./_models/user";
 import {VersionService} from "./_services/version.service";
 import {LicenseService} from "./_services/license.service";
+import {LocalizationService} from "./_services/localization.service";
 
 @Component({
     selector: 'app-root',
     templateUrl: './app.component.html',
     styleUrls: ['./app.component.scss'],
-    standalone: true,
-  imports: [NgClass, SideNavComponent, RouterOutlet, AsyncPipe, NavHeaderComponent, PreferenceNavComponent],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    imports: [NgClass, SideNavComponent, RouterOutlet, AsyncPipe, NavHeaderComponent, PreferenceNavComponent],
+    changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class AppComponent implements OnInit {
+  protected readonly Breakpoint = Breakpoint;
 
-  transitionState$!: Observable<boolean>;
+
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly offcanvas = inject(NgbOffcanvas);
@@ -53,8 +45,9 @@ export class AppComponent implements OnInit {
   private readonly translocoService = inject(TranslocoService);
   private readonly versionService = inject(VersionService); // Needs to be injected to run background job
   private readonly licenseService = inject(LicenseService);
+  private readonly localizationService = inject(LocalizationService);
 
-  protected readonly Breakpoint = Breakpoint;
+  transitionState$!: Observable<boolean>;
 
 
   constructor(ratingConfig: NgbRatingConfig, modalConfig: NgbModalConfig) {
@@ -96,7 +89,7 @@ export class AppComponent implements OnInit {
       return user.preferences.noTransitions;
     }), takeUntilDestroyed(this.destroyRef));
 
-
+    this.localizationService.getLocales().subscribe(); // This will cache the localizations on startup
   }
 
   @HostListener('window:resize', ['$event'])
@@ -106,6 +99,7 @@ export class AppComponent implements OnInit {
     const vh = window.innerHeight * 0.01;
     this.document.documentElement.style.setProperty('--vh', `${vh}px`);
     this.utilityService.activeBreakpointSource.next(this.utilityService.getActiveBreakpoint());
+    this.utilityService.updateUserBreakpoint();
   }
 
   ngOnInit(): void {
@@ -116,14 +110,18 @@ export class AppComponent implements OnInit {
 
 
   setCurrentUser() {
-    const user = this.accountService.getUserFromLocalStorage();
-    this.accountService.setCurrentUser(user);
-
+    const user = this.accountService.currentUserSignal();
     if (!user) return;
+
+    // Refresh the user data
+    this.accountService.refreshAccount().subscribe(account => {
+      if (this.accountService.hasAdminRole(user)) {
+        this.licenseService.licenseInfo().subscribe();
+      }
+    });
 
     // Bootstrap anything that's needed
     this.themeService.getThemes().subscribe();
     this.libraryService.getLibraryNames().pipe(take(1), shareReplay({refCount: true, bufferSize: 1})).subscribe();
-    this.licenseService.licenseInfo().subscribe();
   }
 }

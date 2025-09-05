@@ -1,23 +1,22 @@
-import { HttpClient } from '@angular/common/http';
-import {DestroyRef, inject, Injectable } from '@angular/core';
-import {catchError, Observable, of, ReplaySubject, shareReplay, throwError} from 'rxjs';
+import {HttpClient, HttpHeaders} from '@angular/common/http';
+import {DestroyRef, inject, Injectable} from '@angular/core';
+import {Observable, of, ReplaySubject, shareReplay} from 'rxjs';
 import {filter, map, switchMap, tap} from 'rxjs/operators';
-import { environment } from 'src/environments/environment';
-import { Preferences } from '../_models/preferences/preferences';
-import { User } from '../_models/user';
-import { Router } from '@angular/router';
-import { EVENTS, MessageHubService } from './message-hub.service';
-import { ThemeService } from './theme.service';
-import { InviteUserResponse } from '../_models/auth/invite-user-response';
-import { UserUpdateEvent } from '../_models/events/user-update-event';
-import { AgeRating } from '../_models/metadata/age-rating';
-import { AgeRestriction } from '../_models/metadata/age-restriction';
-import { TextResonse } from '../_types/text-response';
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {environment} from 'src/environments/environment';
+import {Preferences} from '../_models/preferences/preferences';
+import {User} from '../_models/user';
+import {Router} from '@angular/router';
+import {EVENTS, MessageHubService} from './message-hub.service';
+import {ThemeService} from './theme.service';
+import {InviteUserResponse} from '../_models/auth/invite-user-response';
+import {UserUpdateEvent} from '../_models/events/user-update-event';
+import {AgeRating} from '../_models/metadata/age-rating';
+import {AgeRestriction} from '../_models/metadata/age-restriction';
+import {TextResonse} from '../_types/text-response';
+import {takeUntilDestroyed, toSignal} from "@angular/core/rxjs-interop";
 import {Action} from "./action-factory.service";
-import {CoverImageSize} from "../admin/_models/cover-image-size";
-import {LicenseInfo} from "../_models/kavitaplus/license-info";
 import {LicenseService} from "./license.service";
+import {LocalizationService} from "./localization.service";
 
 export enum Role {
   Admin = 'Admin',
@@ -48,6 +47,7 @@ export class AccountService {
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly licenseService = inject(LicenseService);
+  private readonly localizationService = inject(LocalizationService);
 
   baseUrl = environment.apiUrl;
   userKey = 'kavita-user';
@@ -63,7 +63,7 @@ export class AccountService {
     return this.hasAdminRole(u);
   }), shareReplay({bufferSize: 1, refCount: true}));
 
-
+  public readonly currentUserSignal = toSignal(this.currentUserSource);
 
   /**
    * SetTimeout handler for keeping track of refresh token call
@@ -102,9 +102,20 @@ export class AccountService {
     return true;
   }
 
+  /**
+   * If the user has any role in the restricted roles array or is an Admin
+   * @param user
+   * @param roles
+   * @param restrictedRoles
+   */
   hasAnyRole(user: User, roles: Array<Role>, restrictedRoles: Array<Role> = []) {
     if (!user || !user.roles) {
       return false;
+    }
+
+    // If the user is an admin, they have the role
+    if (this.hasAdminRole(user)) {
+      return true;
     }
 
     // If restricted roles are provided and the user has any of them, deny access
@@ -121,6 +132,33 @@ export class AccountService {
     return roles.some(role => user.roles.includes(role));
   }
 
+  /**
+   * If User or Admin, will return false
+   * @param user
+   * @param restrictedRoles
+   */
+  hasAnyRestrictedRole(user: User, restrictedRoles: Array<Role> = []) {
+    if (!user || !user.roles) {
+      return true;
+    }
+
+    if (restrictedRoles.length === 0) {
+      return false;
+    }
+
+    // If the user is an admin, they have the role
+    if (this.hasAdminRole(user)) {
+      return false;
+    }
+
+
+    if (restrictedRoles.length > 0 && restrictedRoles.some(role => user.roles.includes(role))) {
+      return true;
+    }
+
+    return false;
+  }
+
   hasAdminRole(user: User) {
     return user && user.roles.includes(Role.Admin);
   }
@@ -130,7 +168,7 @@ export class AccountService {
   }
 
   hasChangeAgeRestrictionRole(user: User) {
-    return user && user.roles.includes(Role.ChangeRestriction);
+    return user && !user.roles.includes(Role.Admin) && user.roles.includes(Role.ChangeRestriction);
   }
 
   hasDownloadRole(user: User) {
@@ -167,12 +205,22 @@ export class AccountService {
     );
   }
 
-  setCurrentUser(user?: User, refreshConnections = true) {
-    if (user) {
-      user.roles = [];
-      const roles = this.getDecodedToken(user.token).role;
-      Array.isArray(roles) ? user.roles = roles : user.roles.push(roles);
+  getAccount() {
+    return this.httpClient.get<User>(this.baseUrl + 'account').pipe(
+      tap((response: User) => {
+        const user = response;
+        if (user) {
+          this.setCurrentUser(user);
+        }
+      }),
+      takeUntilDestroyed(this.destroyRef)
+    );
+  }
 
+  setCurrentUser(user?: User, refreshConnections = true) {
+
+    const isSameUser = this.currentUser === user;
+    if (user) {
       localStorage.setItem(this.userKey, JSON.stringify(user));
       localStorage.setItem(AccountService.lastLoginKey, user.username);
 
@@ -195,21 +243,35 @@ export class AccountService {
     if (this.currentUser) {
       // BUG: StopHubConnection has a promise in it, this needs to be async
       // But that really messes everything up
-      this.messageHub.stopHubConnection();
-      this.messageHub.createHubConnection(this.currentUser);
-      this.licenseService.hasValidLicense().subscribe();
-      this.startRefreshTokenTimer();
+      if (!isSameUser) {
+        this.messageHub.stopHubConnection();
+        this.messageHub.createHubConnection(this.currentUser);
+        this.licenseService.hasValidLicense().subscribe();
+      }
+      if (this.currentUser.token) {
+        this.startRefreshTokenTimer();
+      }
     }
   }
 
-  logout() {
+  logout(skipAutoLogin: boolean = false) {
+    const user = this.currentUserSignal();
+    if (!user) return;
+
     localStorage.removeItem(this.userKey);
     this.currentUserSource.next(undefined);
     this.currentUser = undefined;
     this.stopRefreshTokenTimer();
     this.messageHub.stopHubConnection();
-    // Upon logout, perform redirection
-    this.router.navigateByUrl('/login');
+
+    if (!user.token) {
+      window.location.href = '/oidc/logout';
+      return;
+    }
+
+    this.router.navigate(['/login'], {
+      queryParams: {skipAutoLogin: skipAutoLogin}
+    });
   }
 
 
@@ -225,6 +287,11 @@ export class AccountService {
       }),
       takeUntilDestroyed(this.destroyRef)
     );
+  }
+
+  isOidcAuthenticated() {
+    return this.httpClient.get<string>(this.baseUrl + 'account/oidc-authenticated', TextResonse)
+      .pipe(map(res => res == "true"));
   }
 
   isEmailConfirmed() {
@@ -316,6 +383,8 @@ export class AccountService {
 
         // Update the locale on disk (for logout and compact-number pipe)
         localStorage.setItem(AccountService.localeKey, this.currentUser.preferences.locale);
+        this.localizationService.refreshTranslations(this.currentUser.preferences.locale);
+
       }
       return settings;
     }), takeUntilDestroyed(this.destroyRef));
@@ -366,7 +435,8 @@ export class AccountService {
 
 
   private refreshToken() {
-    if (this.currentUser === null || this.currentUser === undefined || !this.isOnline) return of();
+    if (this.currentUser === null || this.currentUser === undefined || !this.isOnline || !this.currentUser.token) return of();
+
     return this.httpClient.post<{token: string, refreshToken: string}>(this.baseUrl + 'account/refresh-token',
      {token: this.currentUser.token, refreshToken: this.currentUser.refreshToken}).pipe(map(user => {
       if (this.currentUser) {

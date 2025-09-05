@@ -1,14 +1,34 @@
 import {DOCUMENT} from '@angular/common';
 import {DestroyRef, inject, Inject, Injectable, Renderer2, RendererFactory2, RendererStyleFlags2} from '@angular/core';
-import {distinctUntilChanged, filter, ReplaySubject, take} from 'rxjs';
-import { HttpClient } from "@angular/common/http";
+import {filter, ReplaySubject, take} from 'rxjs';
+import {HttpClient} from "@angular/common/http";
 import {environment} from "../../environments/environment";
 import {SideNavStream} from "../_models/sidenav/sidenav-stream";
 import {TextResonse} from "../_types/text-response";
 import {AccountService} from "./account.service";
 import {map} from "rxjs/operators";
 import {NavigationEnd, Router} from "@angular/router";
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {takeUntilDestroyed, toSignal} from "@angular/core/rxjs-interop";
+import {SettingsTabId} from "../sidenav/preference-nav/preference-nav.component";
+import {WikiLink} from "../_models/wiki";
+import {AuthGuard} from "../_guards/auth.guard";
+import {SettingsService} from "../admin/settings.service";
+
+/**
+ * NavItem used to construct the dropdown or NavLinkModal on mobile
+ * Priority construction
+ * @param routerLink A link to a page on the web app, takes priority
+ * @param fragment Optional fragment for routerLink
+ * @param href A link to an external page, must set noopener noreferrer
+ * @param click Callback, lowest priority. Should only be used if routerLink and href or not set
+ */
+interface NavItem {
+  transLocoKey: string;
+  href?: string;
+  fragment?: string;
+  routerLink?: string;
+  click?: () => void;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -21,6 +41,33 @@ export class NavService {
 
   public localStorageSideNavKey = 'kavita--sidenav--expanded';
 
+  public navItems: NavItem[] = [
+    {
+      transLocoKey: 'all-filters',
+      routerLink: '/all-filters/',
+    },
+    {
+      transLocoKey: 'browse-genres',
+      routerLink: '/browse/genres',
+    },
+    {
+      transLocoKey: 'browse-tags',
+      routerLink: '/browse/tags',
+    },
+    {
+      transLocoKey: 'announcements',
+      routerLink: '/announcements/',
+    },
+    {
+      transLocoKey: 'help',
+      href: WikiLink.Guides,
+    },
+    {
+      transLocoKey: 'logout',
+      click: () => this.logout(),
+    }
+  ]
+
   private navbarVisibleSource = new ReplaySubject<boolean>(1);
   /**
    * If the top Nav bar is rendered or not
@@ -32,12 +79,14 @@ export class NavService {
    * If the Side Nav is in a collapsed state or not.
    */
   sideNavCollapsed$ = this.sideNavCollapseSource.asObservable();
+  sideNavCollapsedSignal = toSignal(this.sideNavCollapsed$, {initialValue: false});
 
   private sideNavVisibilitySource = new ReplaySubject<boolean>(1);
   /**
    * If the side nav is rendered or not into the DOM.
    */
   sideNavVisibility$ = this.sideNavVisibilitySource.asObservable();
+  sideNavVisibilitySignal = toSignal(this.sideNavVisibility$, {initialValue: false})
 
   usePreferenceSideNav$ = this.router.events.pipe(
     filter(event => event instanceof NavigationEnd),
@@ -93,6 +142,10 @@ export class NavService {
     return this.httpClient.post(this.baseUrl + 'stream/bulk-sidenav-stream-visibility', {ids: streamIds, visibility: targetVisibility});
   }
 
+  deleteSideNavSmartFilter(streamId: number) {
+    return this.httpClient.delete(this.baseUrl + 'stream/smart-filter-side-nav-stream?sideNavStreamId=' + streamId, {});
+  }
+
   /**
    * Shows the top nav bar. This should be visible on all pages except the reader.
    */
@@ -121,6 +174,27 @@ export class NavService {
       this.renderer.setStyle(bodyElem, 'overflow', 'auto');
       this.navbarVisibleSource.next(false);
     }, 10);
+  }
+
+  logout() {
+    this.hideNavBar();
+    this.hideSideNav();
+    this.accountService.logout();
+  }
+
+  handleLogin() {
+    this.showNavBar();
+    this.showSideNav();
+
+    // Check if user came here from another url, else send to library route
+    const pageResume = localStorage.getItem(AuthGuard.urlKey);
+    if (pageResume && pageResume !== '/login') {
+      localStorage.setItem(AuthGuard.urlKey, '');
+      this.router.navigateByUrl(pageResume);
+    } else {
+      localStorage.setItem(AuthGuard.urlKey, '');
+      this.router.navigateByUrl('/home');
+    }
   }
 
   /**

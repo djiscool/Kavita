@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using API.DTOs.Update;
@@ -49,7 +51,8 @@ public interface IVersionUpdaterService
     Task<UpdateNotificationDto?> CheckForUpdate();
     Task PushUpdate(UpdateNotificationDto update);
     Task<IList<UpdateNotificationDto>> GetAllReleases(int count = 0);
-    Task<int> GetNumberOfReleasesBehind();
+    Task<int> GetNumberOfReleasesBehind(bool stableOnly = false);
+    void BustGithubCache();
 }
 
 
@@ -67,14 +70,20 @@ public partial class VersionUpdaterService : IVersionUpdaterService
 
     [GeneratedRegex(@"^\n*(.*?)\n+#{1,2}\s", RegexOptions.Singleline)]
     private static partial Regex BlogPartRegex();
-    private static string _cacheFilePath;
+    private readonly string _cacheFilePath;
+    /// <summary>
+    /// The latest release cache
+    /// </summary>
+    private readonly string _cacheLatestReleaseFilePath;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public VersionUpdaterService(ILogger<VersionUpdaterService> logger, IEventHub eventHub, IDirectoryService directoryService)
     {
         _logger = logger;
         _eventHub = eventHub;
         _cacheFilePath = Path.Combine(directoryService.LongTermCacheDirectory, "github_releases_cache.json");
+        _cacheLatestReleaseFilePath = Path.Combine(directoryService.LongTermCacheDirectory, "github_latest_release_cache.json");
 
         FlurlConfiguration.ConfigureClientForUrl(GithubLatestReleasesUrl);
         FlurlConfiguration.ConfigureClientForUrl(GithubAllReleasesUrl);
@@ -86,12 +95,28 @@ public partial class VersionUpdaterService : IVersionUpdaterService
     /// <returns>Latest update</returns>
     public async Task<UpdateNotificationDto?> CheckForUpdate()
     {
+        // Attempt to fetch from cache
+        var cachedRelease = await TryGetCachedLatestRelease();
+        if (cachedRelease != null)
+        {
+            return cachedRelease;
+        }
+
         var update = await GetGithubRelease();
         var dto = CreateDto(update);
+
+        if (dto != null)
+        {
+            await CacheLatestReleaseAsync(dto);
+        }
 
         return dto;
     }
 
+    /// <summary>
+    /// Will add any extra (nightly) updates from the latest stable. Does not back-fill anything prior to the latest stable.
+    /// </summary>
+    /// <param name="dtos"></param>
     private async Task EnrichWithNightlyInfo(List<UpdateNotificationDto> dtos)
     {
         var dto = dtos[0]; // Latest version
@@ -114,6 +139,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
 
                 var nightlyDto = new UpdateNotificationDto
                 {
+                    // TODO: I should pass Title to the FE so that Nightly Release can be localized
                     UpdateTitle = $"Nightly Release {nightly.Version} - {prInfo.Title}",
                     UpdateVersion = nightly.Version,
                     CurrentVersion = dto.CurrentVersion,
@@ -129,7 +155,9 @@ public partial class VersionUpdaterService : IVersionUpdaterService
                     Removed = sections.TryGetValue("Removed", out var removed) ? removed : [],
                     Theme = sections.TryGetValue("Theme", out var theme) ? theme : [],
                     Developer = sections.TryGetValue("Developer", out var developer) ? developer : [],
+                    KnownIssues = sections.TryGetValue("KnownIssues", out var knownIssues) ? knownIssues : [],
                     Api = sections.TryGetValue("Api", out var api) ? api : [],
+                    FeatureRequests = sections.TryGetValue("Feature Requests", out var frs) ? frs : [],
                     BlogPart = _markdown.Transform(blogPart.Trim()),
                     UpdateBody = _markdown.Transform(prInfo.Body.Trim())
                 };
@@ -231,7 +259,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
                             {
                                 Version = version,
                                 PrNumber = prNumber,
-                                Date = DateTime.Parse(commit.Commit.Author.Date)
+                                Date = DateTime.Parse(commit.Commit.Author.Date, CultureInfo.InvariantCulture)
                             });
                         }
                     }
@@ -251,7 +279,8 @@ public partial class VersionUpdaterService : IVersionUpdaterService
     {
         // Attempt to fetch from cache
         var cachedReleases = await TryGetCachedReleases();
-        if (cachedReleases != null)
+        // If there is a cached release and the current version is within it, use it, otherwise regenerate
+        if (cachedReleases != null && cachedReleases.Any(r => IsVersionEqual(r.UpdateVersion, BuildInfo.Version.ToString())))
         {
             if (count > 0)
             {
@@ -270,8 +299,15 @@ public partial class VersionUpdaterService : IVersionUpdaterService
 
         var updateDtos = query.ToList();
 
+        // Sometimes a release can be 0.8.5.0 on disk, but 0.8.5 from Github
+        var versionParts = updateDtos[0].UpdateVersion.Split('.');
+        if (versionParts.Length < 4)
+        {
+            updateDtos[0].UpdateVersion += ".0"; // Append missing parts
+        }
+
         // If we're on a nightly build, enrich the information
-        if (updateDtos.Count != 0 && BuildInfo.Version > new Version(updateDtos[0].UpdateVersion))
+        if (updateDtos.Count != 0) // && BuildInfo.Version > new Version(updateDtos[0].UpdateVersion)
         {
             await EnrichWithNightlyInfo(updateDtos);
         }
@@ -304,7 +340,30 @@ public partial class VersionUpdaterService : IVersionUpdaterService
         return updateDtos;
     }
 
-    private static async Task<IList<UpdateNotificationDto>?> TryGetCachedReleases()
+    /// <summary>
+    /// Compares 2 versions and ensures that the minor is always there
+    /// </summary>
+    /// <param name="v1"></param>
+    /// <param name="v2"></param>
+    /// <returns></returns>
+    private static bool IsVersionEqual(string v1, string v2)
+    {
+        var versionParts = v1.Split('.');
+        if (versionParts.Length < 4)
+        {
+            v1 += ".0"; // Append missing parts
+        }
+
+        versionParts = v2.Split('.');
+        if (versionParts.Length < 4)
+        {
+            v2 += ".0"; // Append missing parts
+        }
+
+        return string.Equals(v2, v2, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<IList<UpdateNotificationDto>?> TryGetCachedReleases()
     {
         if (!File.Exists(_cacheFilePath)) return null;
 
@@ -312,7 +371,21 @@ public partial class VersionUpdaterService : IVersionUpdaterService
         if (DateTime.UtcNow - fileInfo.LastWriteTimeUtc <= CacheDuration)
         {
             var cachedData = await File.ReadAllTextAsync(_cacheFilePath);
-            return System.Text.Json.JsonSerializer.Deserialize<IList<UpdateNotificationDto>>(cachedData);
+            return JsonSerializer.Deserialize<IList<UpdateNotificationDto>>(cachedData);
+        }
+
+        return null;
+    }
+
+    private async Task<UpdateNotificationDto?> TryGetCachedLatestRelease()
+    {
+        if (!File.Exists(_cacheLatestReleaseFilePath)) return null;
+
+        var fileInfo = new FileInfo(_cacheLatestReleaseFilePath);
+        if (DateTime.UtcNow - fileInfo.LastWriteTimeUtc <= CacheDuration)
+        {
+            var cachedData = await File.ReadAllTextAsync(_cacheLatestReleaseFilePath);
+            return JsonSerializer.Deserialize<UpdateNotificationDto>(cachedData);
         }
 
         return null;
@@ -322,12 +395,25 @@ public partial class VersionUpdaterService : IVersionUpdaterService
     {
         try
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(updates, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(updates, JsonOptions);
             await File.WriteAllTextAsync(_cacheFilePath, json);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to cache releases");
+        }
+    }
+
+    private async Task CacheLatestReleaseAsync(UpdateNotificationDto update)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(update, JsonOptions);
+            await File.WriteAllTextAsync(_cacheLatestReleaseFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cache latest release");
         }
     }
 
@@ -340,10 +426,40 @@ public partial class VersionUpdaterService : IVersionUpdaterService
     }
 
 
-    public async Task<int> GetNumberOfReleasesBehind()
+    /// <summary>
+    /// Returns the number of releases ahead of this install version. If this install version is on a nightly,
+    /// then include nightly releases, otherwise only count Stable releases.
+    /// </summary>
+    /// <param name="stableOnly">Only count Stable releases </param>
+    /// <returns></returns>
+    public async Task<int> GetNumberOfReleasesBehind(bool stableOnly = false)
     {
         var updates = await GetAllReleases();
-        return updates.TakeWhile(update => update.UpdateVersion != update.CurrentVersion).Count();
+
+        // If the user is on nightly, then we need to handle releases behind differently
+        if (!stableOnly && (updates[0].IsPrerelease || updates[0].IsOnNightlyInRelease))
+        {
+            return updates.Count(u => u.IsReleaseNewer);
+        }
+
+        return updates
+            .Where(update => !update.IsPrerelease)
+            .Count(u => u.IsReleaseNewer);
+    }
+
+    /// <summary>
+    /// Clears the Github cache
+    /// </summary>
+    public void BustGithubCache()
+    {
+        try
+        {
+            File.Delete(_cacheFilePath);
+            File.Delete(_cacheLatestReleaseFilePath);
+        } catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear Github cache");
+        }
     }
 
     private UpdateNotificationDto? CreateDto(GithubReleaseMetadata? update)
@@ -367,6 +483,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
             PublishDate = update.Published_At,
             IsReleaseEqual = IsVersionEqualToBuildVersion(updateVersion),
             IsReleaseNewer = BuildInfo.Version < updateVersion,
+            IsPrerelease = false,
 
             Added = parsedSections.TryGetValue("Added", out var added) ? added : [],
             Removed = parsedSections.TryGetValue("Removed", out var removed) ? removed : [],
@@ -374,7 +491,9 @@ public partial class VersionUpdaterService : IVersionUpdaterService
             Fixed = parsedSections.TryGetValue("Fixed", out var fixes) ? fixes : [],
             Theme = parsedSections.TryGetValue("Theme", out var theme) ? theme : [],
             Developer = parsedSections.TryGetValue("Developer", out var developer) ? developer : [],
+            KnownIssues = parsedSections.TryGetValue("Known Issues", out var knownIssues) ? knownIssues : [],
             Api = parsedSections.TryGetValue("Api", out var api) ? api : [],
+            FeatureRequests = parsedSections.TryGetValue("Feature Requests", out var frs) ? frs : [],
             BlogPart = blogPart
         };
     }
@@ -446,7 +565,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
     {
         var sections = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var lines = body.Split('\n');
-        string currentSection = null;
+        string? currentSection = null;
 
         foreach (var line in lines)
         {
@@ -467,6 +586,12 @@ public partial class VersionUpdaterService : IVersionUpdaterService
             {
                 // Remove "Fixed:", "Added:" etc. if present
                 var cleanedItem = CleanSectionItem(trimmedLine);
+
+                // Some sections like API/Developer/Removed don't have the title repeated, so we need to check for an additional cleaning
+                if (cleanedItem.StartsWith("- "))
+                {
+                    cleanedItem =  trimmedLine.Substring(2);
+                }
 
                 // Only add non-empty items
                 if (!string.IsNullOrWhiteSpace(cleanedItem))
@@ -491,7 +616,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
         return item;
     }
 
-    sealed class PullRequestInfo
+    private sealed class PullRequestInfo
     {
         public required string Title { get; init; }
         public required string Body { get; init; }
@@ -500,25 +625,25 @@ public partial class VersionUpdaterService : IVersionUpdaterService
         public required int Number { get; init; }
     }
 
-    sealed class CommitInfo
+    private sealed class CommitInfo
     {
         public required string Sha { get; init; }
         public required CommitDetail Commit { get; init; }
         public required string Html_Url { get; init; }
     }
 
-    sealed class CommitDetail
+    private sealed class CommitDetail
     {
         public required string Message { get; init; }
         public required CommitAuthor Author { get; init; }
     }
 
-    sealed class CommitAuthor
+    private sealed class CommitAuthor
     {
         public required string Date { get; init; }
     }
 
-    sealed class NightlyInfo
+    private sealed class NightlyInfo
     {
         public required string Version { get; init; }
         public required int PrNumber { get; init; }

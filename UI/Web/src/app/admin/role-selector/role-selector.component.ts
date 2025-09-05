@@ -3,26 +3,25 @@ import {
   ChangeDetectorRef,
   Component,
   EventEmitter,
-  inject,
+  inject, input,
   Input,
   OnInit,
   Output
 } from '@angular/core';
-import { Member } from 'src/app/_models/auth/member';
-import { User } from 'src/app/_models/user';
+import {Member} from 'src/app/_models/auth/member';
+import {User} from 'src/app/_models/user';
 import {AccountService} from 'src/app/_services/account.service';
-import { ReactiveFormsModule, FormsModule } from '@angular/forms';
-import { NgFor } from '@angular/common';
+import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {TranslocoDirective,} from "@jsverse/transloco";
 import {SelectionModel} from "../../typeahead/_models/selection-model";
+import {RoleLocalizedPipe} from "../../_pipes/role-localized.pipe";
 
 @Component({
-    selector: 'app-role-selector',
-    templateUrl: './role-selector.component.html',
-    styleUrls: ['./role-selector.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    standalone: true,
-  imports: [NgFor, ReactiveFormsModule, FormsModule, TranslocoDirective]
+  selector: 'app-role-selector',
+  templateUrl: './role-selector.component.html',
+  styleUrls: ['./role-selector.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [ReactiveFormsModule, FormsModule, TranslocoDirective, RoleLocalizedPipe]
 })
 export class RoleSelectorComponent implements OnInit {
 
@@ -34,6 +33,7 @@ export class RoleSelectorComponent implements OnInit {
    * This must have roles
    */
   @Input() member: Member | undefined | User;
+  preSelectedRoles = input<string[]>([]);
   /**
    * Allows the selection of Admin role
    */
@@ -73,6 +73,13 @@ export class RoleSelectorComponent implements OnInit {
   preselect() {
     if (this.member !== undefined) {
       this.member.roles.forEach(role => {
+        const foundRole = this.selectedRoles.filter(item => item.data === role);
+        if (foundRole.length > 0) {
+          foundRole[0].selected = true;
+        }
+      });
+    } else if (this.preSelectedRoles().length > 0) {
+      this.preSelectedRoles().forEach((role) => {
         const foundRole = this.selectedRoles.filter(item => item.data === role);
         if (foundRole.length > 0) {
           foundRole[0].selected = true;

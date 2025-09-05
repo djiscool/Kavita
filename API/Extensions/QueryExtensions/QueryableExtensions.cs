@@ -5,10 +5,13 @@ using System.Linq.Expressions;
 using System.Threading.Tasks;
 using API.Data.Misc;
 using API.Data.Repositories;
+using API.DTOs;
 using API.DTOs.Filtering;
 using API.DTOs.KavitaPlus.Manage;
+using API.DTOs.Metadata.Browse;
 using API.Entities;
 using API.Entities.Enums;
+using API.Entities.Person;
 using API.Entities.Scrobble;
 using Microsoft.EntityFrameworkCore;
 
@@ -255,6 +258,7 @@ public static class QueryableExtensions
                 ScrobbleEventSortField.Type => query.OrderByDescending(s => s.ScrobbleEventType),
                 ScrobbleEventSortField.Series => query.OrderByDescending(s => s.Series.NormalizedName),
                 ScrobbleEventSortField.IsProcessed => query.OrderByDescending(s => s.IsProcessed),
+                ScrobbleEventSortField.ScrobbleEventFilter => query.OrderByDescending(s => s.ScrobbleEventType),
                 _ => query
             };
         }
@@ -267,8 +271,30 @@ public static class QueryableExtensions
             ScrobbleEventSortField.Type => query.OrderBy(s => s.ScrobbleEventType),
             ScrobbleEventSortField.Series => query.OrderBy(s => s.Series.NormalizedName),
             ScrobbleEventSortField.IsProcessed => query.OrderBy(s => s.IsProcessed),
+            ScrobbleEventSortField.ScrobbleEventFilter => query.OrderBy(s => s.ScrobbleEventType),
             _ => query
         };
+    }
+
+    public static IQueryable<Person> SortBy(this IQueryable<Person> query, PersonSortOptions? sort)
+    {
+        if (sort == null)
+        {
+            return query.OrderBy(p => p.Name);
+        }
+
+        return sort.SortField switch
+        {
+            PersonSortField.Name when sort.IsAscending => query.OrderBy(p => p.Name),
+            PersonSortField.Name => query.OrderByDescending(p => p.Name),
+            PersonSortField.SeriesCount when sort.IsAscending => query.OrderBy(p => p.SeriesMetadataPeople.Count),
+            PersonSortField.SeriesCount => query.OrderByDescending(p => p.SeriesMetadataPeople.Count),
+            PersonSortField.ChapterCount when sort.IsAscending => query.OrderBy(p => p.ChapterPeople.Count),
+            PersonSortField.ChapterCount => query.OrderByDescending(p => p.ChapterPeople.Count),
+            _ => query.OrderBy(p => p.Name)
+        };
+
+
     }
 
     /// <summary>
@@ -288,11 +314,15 @@ public static class QueryableExtensions
         return stateOption switch
         {
             MatchStateOption.All => query,
-            MatchStateOption.Matched => query.Where(s => s.ExternalSeriesMetadata != null && s.ExternalSeriesMetadata.ValidUntilUtc > DateTime.MinValue && !s.IsBlacklisted),
-            MatchStateOption.NotMatched => query.Where(s => (s.ExternalSeriesMetadata == null || s.ExternalSeriesMetadata.ValidUntilUtc == DateTime.MinValue) && !s.IsBlacklisted),
-            MatchStateOption.Error => query.Where(s => s.IsBlacklisted),
+            MatchStateOption.Matched => query
+                .Include(s => s.ExternalSeriesMetadata)
+                .Where(s => s.ExternalSeriesMetadata != null && s.ExternalSeriesMetadata.ValidUntilUtc > DateTime.MinValue && !s.IsBlacklisted),
+            MatchStateOption.NotMatched => query.
+                Include(s => s.ExternalSeriesMetadata)
+                .Where(s => (s.ExternalSeriesMetadata == null || s.ExternalSeriesMetadata.ValidUntilUtc == DateTime.MinValue) && !s.IsBlacklisted && !s.DontMatch),
+            MatchStateOption.Error => query.Where(s => s.IsBlacklisted && !s.DontMatch),
             MatchStateOption.DontMatch => query.Where(s => s.DontMatch),
-            _ => throw new ArgumentOutOfRangeException(nameof(stateOption), stateOption, null)
+            _ => query
         };
     }
 }

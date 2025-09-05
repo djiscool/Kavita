@@ -10,27 +10,30 @@ import {ExternalSeriesMatch} from "../../_models/series-detail/external-series-m
 import {ToastrService} from "ngx-toastr";
 import {SettingItemComponent} from "../../settings/_components/setting-item/setting-item.component";
 import {SettingSwitchComponent} from "../../settings/_components/setting-switch/setting-switch.component";
+import { ThemeService } from 'src/app/_services/theme.service';
+import { AsyncPipe } from '@angular/common';
 
 @Component({
-  selector: 'app-match-series-modal',
-  standalone: true,
-  imports: [
-    TranslocoDirective,
-    MatchSeriesResultItemComponent,
-    LoadingComponent,
-    ReactiveFormsModule,
-    SettingItemComponent,
-    SettingSwitchComponent
-  ],
-  templateUrl: './match-series-modal.component.html',
-  styleUrl: './match-series-modal.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-match-series-modal',
+    imports: [
+        AsyncPipe,
+        TranslocoDirective,
+        MatchSeriesResultItemComponent,
+        LoadingComponent,
+        ReactiveFormsModule,
+        SettingItemComponent,
+        SettingSwitchComponent
+    ],
+    templateUrl: './match-series-modal.component.html',
+    styleUrl: './match-series-modal.component.scss',
+    changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MatchSeriesModalComponent implements OnInit {
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly seriesService = inject(SeriesService);
   private readonly modalService = inject(NgbActiveModal);
   private readonly toastr = inject(ToastrService);
+  protected readonly themeService = inject(ThemeService);
 
   @Input({required: true}) series!: Series;
 
@@ -70,8 +73,10 @@ export class MatchSeriesModalComponent implements OnInit {
     const model: any = this.formGroup.value;
     model.seriesId = this.series.id;
 
+    const dontMatchChanged = this.series.dontMatch !== model.dontMatch;
+
     // We need to update the dontMatch status
-    if (model.dontMatch) {
+    if (dontMatchChanged) {
       this.seriesService.updateDontMatch(this.series.id, model.dontMatch).subscribe(_ => {
         this.modalService.close(true);
       });
@@ -86,7 +91,7 @@ export class MatchSeriesModalComponent implements OnInit {
     data.tags = data.tags || [];
     data.genres = data.genres || [];
 
-    this.seriesService.updateMatch(this.series.id, data).subscribe(_ => {
+    this.seriesService.updateMatch(this.series.id, item.series).subscribe(_ => {
       this.save();
     });
   }

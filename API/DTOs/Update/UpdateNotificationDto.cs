@@ -6,7 +6,7 @@ namespace API.DTOs.Update;
 /// <summary>
 /// Update Notification denoting a new release available for user to update to
 /// </summary>
-public class UpdateNotificationDto
+public sealed record UpdateNotificationDto
 {
     /// <summary>
     /// Current installed Version
@@ -40,8 +40,7 @@ public class UpdateNotificationDto
     /// <summary>
     /// Date of the publish
     /// </summary>
-    public required string PublishDate { get; set
-        ; }
+    public required string PublishDate { get; set; }
     /// <summary>
     /// Is the server on a nightly within this release
     /// </summary>
@@ -62,6 +61,8 @@ public class UpdateNotificationDto
     public IList<string> Theme { get; set; }
     public IList<string> Developer { get; set; }
     public IList<string> Api { get; set; }
+    public IList<string> FeatureRequests { get; set; }
+    public IList<string> KnownIssues { get; set; }
     /// <summary>
     /// The part above the changelog part
     /// </summary>

@@ -103,37 +103,21 @@ public class UsersController : BaseApiController
 
         var existingPreferences = user!.UserPreferences;
 
-        existingPreferences.ReadingDirection = preferencesDto.ReadingDirection;
-        existingPreferences.ScalingOption = preferencesDto.ScalingOption;
-        existingPreferences.PageSplitOption = preferencesDto.PageSplitOption;
-        existingPreferences.AutoCloseMenu = preferencesDto.AutoCloseMenu;
-        existingPreferences.ShowScreenHints = preferencesDto.ShowScreenHints;
-        existingPreferences.EmulateBook = preferencesDto.EmulateBook;
-        existingPreferences.ReaderMode = preferencesDto.ReaderMode;
-        existingPreferences.LayoutMode = preferencesDto.LayoutMode;
-        existingPreferences.BackgroundColor = string.IsNullOrEmpty(preferencesDto.BackgroundColor) ? "#000000" : preferencesDto.BackgroundColor;
-        existingPreferences.BookReaderMargin = preferencesDto.BookReaderMargin;
-        existingPreferences.BookReaderLineSpacing = preferencesDto.BookReaderLineSpacing;
-        existingPreferences.BookReaderFontFamily = preferencesDto.BookReaderFontFamily;
-        existingPreferences.BookReaderFontSize = preferencesDto.BookReaderFontSize;
-        existingPreferences.BookReaderTapToPaginate = preferencesDto.BookReaderTapToPaginate;
-        existingPreferences.BookReaderReadingDirection = preferencesDto.BookReaderReadingDirection;
-        existingPreferences.BookReaderWritingStyle = preferencesDto.BookReaderWritingStyle;
-        existingPreferences.BookThemeName = preferencesDto.BookReaderThemeName;
-        existingPreferences.BookReaderLayoutMode = preferencesDto.BookReaderLayoutMode;
-        existingPreferences.BookReaderImmersiveMode = preferencesDto.BookReaderImmersiveMode;
         existingPreferences.GlobalPageLayoutMode = preferencesDto.GlobalPageLayoutMode;
         existingPreferences.BlurUnreadSummaries = preferencesDto.BlurUnreadSummaries;
-        existingPreferences.LayoutMode = preferencesDto.LayoutMode;
         existingPreferences.PromptForDownloadSize = preferencesDto.PromptForDownloadSize;
         existingPreferences.NoTransitions = preferencesDto.NoTransitions;
-        existingPreferences.SwipeToPaginate = preferencesDto.SwipeToPaginate;
         existingPreferences.CollapseSeriesRelationships = preferencesDto.CollapseSeriesRelationships;
         existingPreferences.ShareReviews = preferencesDto.ShareReviews;
+        existingPreferences.BookReaderHighlightSlots = preferencesDto.BookReaderHighlightSlots;
 
-        existingPreferences.PdfTheme = preferencesDto.PdfTheme;
-        existingPreferences.PdfScrollMode = preferencesDto.PdfScrollMode;
-        existingPreferences.PdfSpreadMode = preferencesDto.PdfSpreadMode;
+        if (await _licenseService.HasActiveLicense())
+        {
+            existingPreferences.AniListScrobblingEnabled = preferencesDto.AniListScrobblingEnabled;
+            existingPreferences.WantToReadSync = preferencesDto.WantToReadSync;
+        }
+
+
 
         if (preferencesDto.Theme != null && existingPreferences.Theme.Id != preferencesDto.Theme?.Id)
         {
@@ -142,10 +126,11 @@ public class UsersController : BaseApiController
         }
 
 
-        if (_localizationService.GetLocales().Contains(preferencesDto.Locale))
+        if (_localizationService.GetLocales().Select(l => l.FileName).Contains(preferencesDto.Locale))
         {
             existingPreferences.Locale = preferencesDto.Locale;
         }
+
 
         _unitOfWork.UserRepository.Update(existingPreferences);
 

@@ -8,6 +8,10 @@ public static class EasyCacheProfiles
     public const string RevokedJwt = "revokedJWT";
     public const string Favicon = "favicon";
     /// <summary>
+    /// Images for Publishers
+    /// </summary>
+    public const string Publisher = "publisherImages";
+    /// <summary>
     /// If a user's license is valid
     /// </summary>
     public const string License = "license";
@@ -23,4 +27,12 @@ public static class EasyCacheProfiles
     /// External Series metadata for Kavita+ recommendation
     /// </summary>
     public const string KavitaPlusExternalSeries = "kavita+externalSeries";
+    /// <summary>
+    /// Match Series metadata for Kavita+ metadata download
+    /// </summary>
+    public const string KavitaPlusMatchSeries = "kavita+matchSeries";
+    /// <summary>
+    /// All Locales on the Server
+    /// </summary>
+    public const string LocaleOptions = "locales";
 }

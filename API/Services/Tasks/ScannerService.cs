@@ -13,6 +13,7 @@ using API.Entities.Enums;
 using API.Extensions;
 using API.Helpers;
 using API.Helpers.Builders;
+using API.Services.Plus;
 using API.Services.Tasks.Metadata;
 using API.Services.Tasks.Scanner;
 using API.Services.Tasks.Scanner.Parser;
@@ -161,7 +162,7 @@ public class ScannerService : IScannerService
         {
             if (TaskScheduler.HasScanTaskRunningForSeries(series.Id))
             {
-                _logger.LogDebug("[ScannerService] Scan folder invoked for {Folder} but a task is already queued for this series. Dropping request", folder);
+                _logger.LogTrace("[ScannerService] Scan folder invoked for {Folder} but a task is already queued for this series. Dropping request", folder);
                 return;
             }
 
@@ -186,7 +187,7 @@ public class ScannerService : IScannerService
         {
             if (TaskScheduler.HasScanTaskRunningForLibrary(library.Id))
             {
-                _logger.LogDebug("[ScannerService] Scan folder invoked for {Folder} but a task is already queued for this library. Dropping request", folder);
+                _logger.LogTrace("[ScannerService] Scan folder invoked for {Folder} but a task is already queued for this library. Dropping request", folder);
                 return;
             }
             BackgroundJob.Schedule(() => ScanLibrary(library.Id, false, true), TimeSpan.FromMinutes(1));
@@ -316,7 +317,8 @@ public class ScannerService : IScannerService
         {
             // Process Series
             var seriesProcessStopWatch = Stopwatch.StartNew();
-            await _processSeries.ProcessSeriesAsync(parsedSeries[pSeries], library, seriesLeftToProcess, bypassFolderOptimizationChecks);
+            var settings = await _unitOfWork.SettingsRepository.GetMetadataSettingDto();
+            await _processSeries.ProcessSeriesAsync(settings, parsedSeries[pSeries], library, seriesLeftToProcess, bypassFolderOptimizationChecks);
             _logger.LogTrace("[TIME] Kavita took {Time} ms to process {SeriesName}", seriesProcessStopWatch.ElapsedMilliseconds, parsedSeries[pSeries][0].Series);
             seriesLeftToProcess--;
         }
@@ -335,11 +337,21 @@ public class ScannerService : IScannerService
 
     private static Dictionary<ParsedSeries, IList<ParserInfo>> TrackFoundSeriesAndFiles(IList<ScannedSeriesResult> seenSeries)
     {
+        // Why does this only grab things that have changed?
         var parsedSeries = new Dictionary<ParsedSeries, IList<ParserInfo>>();
-        foreach (var series in seenSeries.Where(s => s.ParsedInfos.Count > 0 && s.HasChanged))
+        foreach (var series in seenSeries.Where(s => s.ParsedInfos.Count > 0)) // && s.HasChanged
         {
             var parsedFiles = series.ParsedInfos;
-            parsedSeries.Add(series.ParsedSeries, parsedFiles);
+            series.ParsedSeries.HasChanged = series.HasChanged;
+
+            if (series.HasChanged)
+            {
+                parsedSeries.Add(series.ParsedSeries, parsedFiles);
+            }
+            else
+            {
+                parsedSeries.Add(series.ParsedSeries, []);
+            }
         }
 
         return parsedSeries;
@@ -450,12 +462,12 @@ public class ScannerService : IScannerService
             // That way logging and UI informing is all in one place with full context
             _logger.LogError("[ScannerService] Some of the root folders for the library are empty. " +
                              "Either your mount has been disconnected or you are trying to delete all series in the library. " +
-                             "Scan has be aborted. " +
+                             "Scan has been aborted. " +
                              "Check that your mount is connected or change the library's root folder and rescan");
 
             await _eventHub.SendMessageAsync(MessageFactory.Error, MessageFactory.ErrorEvent( $"Some of the root folders for the library, {libraryName}, are empty.",
                 "Either your mount has been disconnected or you are trying to delete all series in the library. " +
-                "Scan has be aborted. " +
+                "Scan has been aborted. " +
                 "Check that your mount is connected or change the library's root folder and rescan"));
 
             return false;
@@ -511,11 +523,16 @@ public class ScannerService : IScannerService
         // Validations are done, now we can start actual scan
         _logger.LogInformation("[ScannerService] Beginning file scan on {LibraryName}", library.Name);
 
+        if (!library.EnableMetadata)
+        {
+            _logger.LogInformation("[ScannerService] Warning! {LibraryName} has metadata turned off", library.Name);
+        }
+
         // This doesn't work for something like M:/Manga/ and a series has library folder as root
         var shouldUseLibraryScan = !(await _unitOfWork.LibraryRepository.DoAnySeriesFoldersMatch(libraryFolderPaths));
         if (!shouldUseLibraryScan)
         {
-            _logger.LogError("[ScannerService] Library {LibraryName} consists of one or more Series folders, using series scan", library.Name);
+            _logger.LogError("[ScannerService] Library {LibraryName} consists of one or more Series folders as a library root, using series scan", library.Name);
         }
 
 
@@ -599,8 +616,16 @@ public class ScannerService : IScannerService
         var toProcess = new Dictionary<ParsedSeries, IList<ParserInfo>>();
         var scanSw = Stopwatch.StartNew();
 
+        var settings = await _unitOfWork.SettingsRepository.GetMetadataSettingDto();
+
         foreach (var series in parsedSeries)
         {
+            if (!series.Key.HasChanged)
+            {
+                _logger.LogDebug("{Series} hasn't changed", series.Key.Name);
+                continue;
+            }
+
             // Filter out ParserInfos where FullFilePath is empty (i.e., folder not modified)
             var validInfos = series.Value.Where(info => !string.IsNullOrEmpty(info.Filename)).ToList();
 
@@ -617,22 +642,26 @@ public class ScannerService : IScannerService
             var allGenres = toProcess
                 .SelectMany(s => s.Value
                     .SelectMany(p => p.ComicInfo?.Genre?
-                                         .Split(",", StringSplitOptions.RemoveEmptyEntries) // Split on comma and remove empty entries
-                                         .Select(g => g.Trim()) // Trim each genre
-                                         .Where(g => !string.IsNullOrWhiteSpace(g)) // Ensure no null/empty genres
-                                     ?? [])); // Handle null Genre or ComicInfo safely
-
-            await CreateAllGenresAsync(allGenres.Distinct().ToList());
+                                         .Split(",", StringSplitOptions.RemoveEmptyEntries)
+                                         .Select(g => g.Trim())
+                                         .Where(g => !string.IsNullOrWhiteSpace(g))
+                                     ?? []))
+                .Distinct().ToList();
 
             var allTags = toProcess
                 .SelectMany(s => s.Value
                     .SelectMany(p => p.ComicInfo?.Tags?
-                                         .Split(",", StringSplitOptions.RemoveEmptyEntries) // Split on comma and remove empty entries
-                                         .Select(g => g.Trim()) // Trim each genre
-                                         .Where(g => !string.IsNullOrWhiteSpace(g)) // Ensure no null/empty genres
-                                     ?? [])); // Handle null Tag or ComicInfo safely
+                                         .Split(",", StringSplitOptions.RemoveEmptyEntries)
+                                         .Select(g => g.Trim())
+                                         .Where(g => !string.IsNullOrWhiteSpace(g))
+                                     ?? []))
+                .Distinct().ToList();
 
-            await CreateAllTagsAsync(allTags.Distinct().ToList());
+            ExternalMetadataService.GenerateExternalGenreAndTagsList(allGenres, allTags, settings,
+                out var processedTags, out var processedGenres);
+
+            await CreateAllGenresAsync(processedGenres);
+            await CreateAllTagsAsync(processedTags);
         }
 
         var totalFiles = 0;
@@ -643,7 +672,7 @@ public class ScannerService : IScannerService
         {
             totalFiles += pSeries.Value.Count;
             var seriesProcessStopWatch = Stopwatch.StartNew();
-            await _processSeries.ProcessSeriesAsync(pSeries.Value, library, seriesLeftToProcess, forceUpdate);
+            await _processSeries.ProcessSeriesAsync(settings, pSeries.Value, library, seriesLeftToProcess, forceUpdate);
             _logger.LogTrace("[TIME] Kavita took {Time} ms to process {SeriesName}", seriesProcessStopWatch.ElapsedMilliseconds, pSeries.Value[0].Series);
             seriesLeftToProcess--;
         }

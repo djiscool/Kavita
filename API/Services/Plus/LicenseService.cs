@@ -44,7 +44,10 @@ public class LicenseService(
 {
     private readonly TimeSpan _licenseCacheTimeout = TimeSpan.FromHours(8);
     public const string Cron = "0 */9 * * *";
-    private const string CacheKey = "license";
+    /// <summary>
+    /// Cache key for if license is valid or not
+    /// </summary>
+    public const string CacheKey = "license";
     private const string LicenseInfoCacheKey = "license-info";
 
 
@@ -127,22 +130,23 @@ public class LicenseService(
             if (cacheValue.HasValue) return cacheValue.Value;
         }
 
+        var result = false;
         try
         {
             var serverSetting = await unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.LicenseKey);
-            var result = await IsLicenseValid(serverSetting.Value);
-            await provider.FlushAsync();
-            await provider.SetAsync(CacheKey, result, _licenseCacheTimeout);
-            return result;
+            result = await IsLicenseValid(serverSetting.Value);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "There was an issue connecting to Kavita+");
+        }
+        finally
+        {
             await provider.FlushAsync();
-            await provider.SetAsync(CacheKey, false, _licenseCacheTimeout);
+            await provider.SetAsync(CacheKey, result, _licenseCacheTimeout);
         }
 
-        return false;
+        return result;
     }
 
     /// <summary>
@@ -260,6 +264,7 @@ public class LicenseService(
             if (cacheValue.HasValue) return cacheValue.Value;
         }
 
+        // TODO: If info.IsCancelled && notActive, let's remove the license so we aren't constantly checking
 
         try
         {
@@ -275,7 +280,7 @@ public class LicenseService(
             var releases = await versionUpdaterService.GetAllReleases();
             response.IsValidVersion = releases
                 .Where(r => !r.UpdateTitle.Contains("Hotfix")) // We don't care about Hotfix releases
-                .Where(r => !r.IsPrerelease || BuildInfo.Version.IsWithinStableRelease(new Version(r.UpdateVersion))) // Ensure we don't take current nightlies within the current/last stable
+                .Where(r => !r.IsPrerelease) // Ensure we don't take current nightlies within the current/last stable
                 .Take(3)
                 .All(r => new Version(r.UpdateVersion) <= BuildInfo.Version);
 

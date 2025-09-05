@@ -36,7 +36,7 @@ public interface IExternalSeriesMetadataRepository
     Task<SeriesDetailPlusDto?> GetSeriesDetailPlusDto(int seriesId);
     Task LinkRecommendationsToSeries(Series series);
     Task<bool> IsBlacklistedSeries(int seriesId);
-    Task<IList<int>> GetAllSeriesIdsWithoutMetadata(int limit);
+    Task<IList<int>> GetSeriesThatNeedExternalMetadata(int limit, bool includeStaleData = false);
     Task<IList<ManageMatchSeriesDto>> GetAllSeries(ManageMatchFilterDto filter);
 }
 
@@ -108,14 +108,17 @@ public class ExternalSeriesMetadataRepository : IExternalSeriesMetadataRepositor
 
     public async Task<bool> NeedsDataRefresh(int seriesId)
     {
+        // TODO: Add unit test
         var row = await _context.ExternalSeriesMetadata
             .Where(s => s.SeriesId == seriesId)
             .FirstOrDefaultAsync();
+
         return row == null || row.ValidUntilUtc <= DateTime.UtcNow;
     }
 
     public async Task<SeriesDetailPlusDto?> GetSeriesDetailPlusDto(int seriesId)
     {
+        // TODO: Add unit test
         var seriesDetailDto = await _context.ExternalSeriesMetadata
             .Where(m => m.SeriesId == seriesId)
             .Include(m => m.ExternalRatings)
@@ -144,7 +147,7 @@ public class ExternalSeriesMetadataRepository : IExternalSeriesMetadataRepositor
             .ProjectTo<SeriesDto>(_mapper.ConfigurationProvider)
             .ToListAsync();
 
-        IEnumerable<UserReviewDto> reviews = new List<UserReviewDto>();
+        IEnumerable<UserReviewDto> reviews = [];
         if (seriesDetailDto.ExternalReviews != null && seriesDetailDto.ExternalReviews.Any())
         {
             reviews = seriesDetailDto.ExternalReviews
@@ -157,8 +160,8 @@ public class ExternalSeriesMetadataRepository : IExternalSeriesMetadataRepositor
                 .OrderByDescending(r => r.Score);
         }
 
-        IEnumerable<RatingDto> ratings = new List<RatingDto>();
-        if (seriesDetailDto.ExternalRatings != null && seriesDetailDto.ExternalRatings.Any())
+        IEnumerable<RatingDto> ratings = [];
+        if (seriesDetailDto.ExternalRatings != null && seriesDetailDto.ExternalRatings.Count != 0)
         {
             ratings = seriesDetailDto.ExternalRatings
                 .Select(r => _mapper.Map<RatingDto>(r));
@@ -209,11 +212,14 @@ public class ExternalSeriesMetadataRepository : IExternalSeriesMetadataRepositor
     }
 
 
-    public async Task<IList<int>> GetAllSeriesIdsWithoutMetadata(int limit)
+    public async Task<IList<int>> GetSeriesThatNeedExternalMetadata(int limit, bool includeStaleData = false)
     {
         return await _context.Series
             .Where(s => !ExternalMetadataService.NonEligibleLibraryTypes.Contains(s.Library.Type))
-            .Where(s => s.ExternalSeriesMetadata == null || s.ExternalSeriesMetadata.ValidUntilUtc < DateTime.UtcNow)
+            .Where(s => s.Library.AllowMetadataMatching)
+            .WhereIf(includeStaleData, s => s.ExternalSeriesMetadata == null || s.ExternalSeriesMetadata.ValidUntilUtc < DateTime.UtcNow)
+            .Where(s => s.ExternalSeriesMetadata == null || s.ExternalSeriesMetadata.AniListId == 0)
+            .Where(s => !s.IsBlacklisted && !s.DontMatch)
             .OrderByDescending(s => s.Library.Type)
             .ThenBy(s => s.NormalizedName)
             .Select(s => s.Id)
@@ -224,7 +230,11 @@ public class ExternalSeriesMetadataRepository : IExternalSeriesMetadataRepositor
     public async Task<IList<ManageMatchSeriesDto>> GetAllSeries(ManageMatchFilterDto filter)
     {
         return await _context.Series
+            .Include(s => s.Library)
+            .Include(s => s.ExternalSeriesMetadata)
             .Where(s => !ExternalMetadataService.NonEligibleLibraryTypes.Contains(s.Library.Type))
+            .Where(s => s.Library.AllowMetadataMatching)
+            .WhereIf(filter.LibraryType >= 0, s => s.Library.Type == (LibraryType) filter.LibraryType)
             .FilterMatchState(filter.MatchStateOption)
             .OrderBy(s => s.NormalizedName)
             .ProjectTo<ManageMatchSeriesDto>(_mapper.ConfigurationProvider)

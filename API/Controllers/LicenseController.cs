@@ -7,10 +7,12 @@ using API.Entities.Enums;
 using API.Extensions;
 using API.Services;
 using API.Services.Plus;
+using EasyCaching.Core;
 using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using TaskScheduler = API.Services.TaskScheduler;
 
 namespace API.Controllers;
 
@@ -21,7 +23,8 @@ public class LicenseController(
     ILogger<LicenseController> logger,
     ILicenseService licenseService,
     ILocalizationService localizationService,
-    ITaskScheduler taskScheduler)
+    ITaskScheduler taskScheduler,
+    IEasyCachingProviderFactory cachingProviderFactory)
     : BaseApiController
 {
     /// <summary>
@@ -32,8 +35,13 @@ public class LicenseController(
     [ResponseCache(CacheProfileName = ResponseCacheProfiles.LicenseCache)]
     public async Task<ActionResult<bool>> HasValidLicense(bool forceCheck = false)
     {
+
         var result = await licenseService.HasActiveLicense(forceCheck);
-        if (result)
+
+        var licenseInfoProvider = cachingProviderFactory.GetCachingProvider(EasyCacheProfiles.License);
+        var cacheValue = await licenseInfoProvider.GetAsync<bool>(LicenseService.CacheKey);
+
+        if (result && !cacheValue.IsNull && !cacheValue.Value)
         {
             await taskScheduler.ScheduleKavitaPlusTasks();
         }
@@ -64,9 +72,20 @@ public class LicenseController(
     [ResponseCache(CacheProfileName = ResponseCacheProfiles.LicenseCache)]
     public async Task<ActionResult<LicenseInfoDto?>> GetLicenseInfo(bool forceCheck = false)
     {
-        return Ok(await licenseService.GetLicenseInfo(forceCheck));
+        try
+        {
+            return Ok(await licenseService.GetLicenseInfo(forceCheck));
+        }
+        catch (Exception)
+        {
+            return Ok(null);
+        }
     }
 
+    /// <summary>
+    /// Remove the Kavita+ License on the Server
+    /// </summary>
+    /// <returns></returns>
     [Authorize("RequireAdminRole")]
     [HttpDelete]
     [ResponseCache(CacheProfileName = ResponseCacheProfiles.LicenseCache)]
@@ -77,7 +96,9 @@ public class LicenseController(
         setting.Value = null;
         unitOfWork.SettingsRepository.Update(setting);
         await unitOfWork.CommitAsync();
-        await taskScheduler.ScheduleKavitaPlusTasks();
+
+        TaskScheduler.RemoveKavitaPlusTasks();
+
         return Ok();
     }
 

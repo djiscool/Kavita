@@ -51,6 +51,7 @@ export const BookWhiteTheme = `
     --btn-disabled-bg-color: #343a40;
     --btn-disabled-text-color: #efefef;
     --btn-disabled-border-color: #6c757d;
+    --btn-outline-primary-text-color: black;
 
     /* Inputs */
     --input-bg-color: white;
@@ -103,7 +104,7 @@ export const BookWhiteTheme = `
 
 
 .book-content *:not(input), .book-content *:not(select), .book-content *:not(code), .book-content *:not(:link), .book-content *:not(.ngx-toastr) {
-  color: black !important;
+  color: black;
 }
 
 .book-content code {
@@ -125,7 +126,7 @@ export const BookWhiteTheme = `
   box-shadow: none;
   text-shadow: none;
   border-radius: unset;
-  color: #dcdcdc !important;
+  color: #dcdcdc;
 }
 
 .book-content :visited, .book-content :visited *, .book-content :visited *[class] {

@@ -49,10 +49,20 @@ import {ManageMatchedMetadataComponent} from "../../../admin/manage-matched-meta
 import {ManageUserTokensComponent} from "../../../admin/manage-user-tokens/manage-user-tokens.component";
 import {EmailHistoryComponent} from "../../../admin/email-history/email-history.component";
 import {ScrobblingHoldsComponent} from "../../../user-settings/user-holds/scrobbling-holds.component";
+import {
+  ManageMetadataSettingsComponent
+} from "../../../admin/manage-metadata-settings/manage-metadata-settings.component";
+import {
+  ManageReadingProfilesComponent
+} from "../../../user-settings/manage-reading-profiles/manage-reading-profiles.component";
+import {
+  ManagePublicMetadataSettingsComponent
+} from "../../../admin/manage-public-metadata-settings/manage-public-metadata-settings.component";
+import {ImportMappingsComponent} from "../../../admin/import-mappings/import-mappings.component";
+import {ManageOpenIDConnectComponent} from "../../../admin/manage-open-idconnect/manage-open-idconnect.component";
 
 @Component({
-  selector: 'app-settings',
-  standalone: true,
+    selector: 'app-settings',
   imports: [
     ChangeAgeRestrictionComponent,
     ChangeEmailComponent,
@@ -84,11 +94,16 @@ import {ScrobblingHoldsComponent} from "../../../user-settings/user-holds/scrobb
     ManageMatchedMetadataComponent,
     ManageUserTokensComponent,
     EmailHistoryComponent,
-    ScrobblingHoldsComponent
+    ScrobblingHoldsComponent,
+    ManageMetadataSettingsComponent,
+    ManageReadingProfilesComponent,
+    ManageOpenIDConnectComponent,
+    ManagePublicMetadataSettingsComponent,
+    ImportMappingsComponent
   ],
-  templateUrl: './settings.component.html',
-  styleUrl: './settings.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush
+    templateUrl: './settings.component.html',
+    styleUrl: './settings.component.scss',
+    changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class SettingsComponent {
 
