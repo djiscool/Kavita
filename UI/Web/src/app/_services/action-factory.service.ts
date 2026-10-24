@@ -1035,9 +1035,8 @@ export class ActionFactoryService {
         title: 'Delete',
         description: 'delete-tooltip',
         callback: this.dummyCallback,
-        requiresAdmin: true,
         children: [],
-        requiredRoles: [],
+        requiredRoles: [Role.Admin],
         shouldRender: this.dummyShouldRender
       }
     ];
