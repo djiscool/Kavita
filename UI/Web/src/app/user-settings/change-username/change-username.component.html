@@ -1,0 +1,26 @@
+<ng-container *transloco="let t; prefix:'change-username'">
+  <app-setting-item [title]="t('username-label')"
+                    [canEdit]="!isReadOnly()"
+                    [isEditMode]="isEditMode()" (isEditModeChange)="updateEditMode($event)"
+  >
+    <ng-template #view>
+      <span class="col-12">{{username()}}</span>
+    </ng-template>
+    <ng-template #edit>
+      <form [formRoot]="formGroup">
+        <div class="mb-3">
+          <label for="username" class="form-label">{{t('new-username-label')}}</label>
+          <input class="form-control custom-input" type="text" id="username" [formField]="formGroup.username" autocomplete="current-password"
+                 [appFormField]="formGroup.username" aria-describedby="username-validations">
+          <app-validation-errors inputId="username" [control]="formGroup.username" />
+        </div>
+
+        <div class="col-auto d-flex d-md-block justify-content-sm-center text-md-end mb-3">
+          <button type="button" class="flex-fill btn btn-secondary me-2" aria-describedby="username-panel" (click)="resetPasswordForm()">{{t('reset')}}</button>
+          <button type="submit" class="flex-fill btn btn-primary" aria-describedby="username-panel" (click)="saveForm()" [disabled]="!formGroup().valid() || !(formGroup().dirty() || formGroup().touched())">{{t('save')}}</button>
+        </div>
+      </form>
+
+    </ng-template>
+  </app-setting-item>
+</ng-container>

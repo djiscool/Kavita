@@ -1,4 +1,4 @@
-import {ChangeDetectionStrategy, Component, effect, EventEmitter, inject, model} from '@angular/core';
+import {ChangeDetectionStrategy, Component, effect, EventEmitter, inject, model, signal} from '@angular/core';
 import {TranslocoDirective} from "@jsverse/transloco";
 import {
   NgbActiveOffcanvas,
@@ -11,17 +11,13 @@ import {
 import {ReaderService} from "../../../../_services/reader.service";
 import {PageBookmark} from "../../../../_models/readers/page-bookmark";
 import {ImageService} from "../../../../_services/image.service";
-import {VirtualScrollerModule} from "@iharbeck/ngx-virtual-scroller";
 import {ImageComponent} from "../../../../shared/image/image.component";
 import {
   PersonalTableOfContentsComponent,
   PersonalToCEvent
 } from "../../personal-table-of-contents/personal-table-of-contents.component";
-
-enum TabID {
-  Image = 1,
-  Text = 2
-}
+import {Tabs} from "../../../../_models/tabs";
+import {TabTitlePipe} from "../../../../_pipes/tab-title.pipe";
 
 export interface LoadPageEvent {
   pageNumber: number;
@@ -33,14 +29,14 @@ export interface LoadPageEvent {
   selector: 'app-view-bookmarks-drawer',
   imports: [
     TranslocoDirective,
-    VirtualScrollerModule,
     ImageComponent,
     NgbNav,
     NgbNavContent,
     NgbNavLink,
     PersonalTableOfContentsComponent,
     NgbNavOutlet,
-    NgbNavItem
+    NgbNavItem,
+    TabTitlePipe
   ],
   templateUrl: './view-bookmark-drawer.component.html',
   styleUrl: './view-bookmark-drawer.component.scss',
@@ -52,8 +48,8 @@ export class ViewBookmarkDrawerComponent {
   protected readonly imageService = inject(ImageService);
 
 
-  chapterId = model<number>();
-  bookmarks = model<PageBookmark[]>();
+  chapterId = model.required<number>();
+  bookmarks = signal<PageBookmark[]>([]);
   /**
    * Current Page
    */
@@ -63,14 +59,10 @@ export class ViewBookmarkDrawerComponent {
    * Emitted when a bookmark is removed
    */
   removeBookmark: EventEmitter<PageBookmark> = new EventEmitter<PageBookmark>();
-  /**
-   * Used to refresh the Personal PoC
-   */
-  refreshPToC: EventEmitter<void> = new EventEmitter<void>();
   loadPtoc: EventEmitter<LoadPageEvent | null> = new EventEmitter<LoadPageEvent | null>();
 
-  tocId: TabID = TabID.Image;
-  protected readonly TabID = TabID;
+  tocId: Tabs = Tabs.BookmarkImageTab;
+  protected readonly Tabs = Tabs;
 
 
   constructor() {

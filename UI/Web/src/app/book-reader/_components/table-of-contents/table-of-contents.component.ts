@@ -1,33 +1,66 @@
 import {
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
-  EventEmitter,
+  computed,
+  effect,
   inject,
   model,
-  Output
+  signal,
+  output
 } from '@angular/core';
 import {BookChapterItem} from '../../_models/book-chapter-item';
 import {TranslocoDirective} from "@jsverse/transloco";
+import {LoadingComponent} from "../../../shared/loading/loading.component";
+import {DOCUMENT} from "@angular/common";
 
 @Component({
   selector: 'app-table-of-contents',
   templateUrl: './table-of-contents.component.html',
   styleUrls: ['./table-of-contents.component.scss'],
-  imports: [TranslocoDirective],
+  imports: [TranslocoDirective, LoadingComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TableOfContentsComponent {
 
-  private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly document = inject(DOCUMENT)
 
   chapterId = model.required<number>();
   pageNum = model.required<number>();
-  currentPageAnchor = model<string>();
+  currentPageAnchor = signal<string>('');
   chapters = model.required<Array<BookChapterItem>>();
+  loading = model.required<boolean>();
 
-  @Output() loadChapter: EventEmitter<{pageNum: number, part: string}> = new EventEmitter();
+  displayedChapters = computed(() => {
+    const chapters = this.chapters();
+    if (chapters.length === 1) {
+      return chapters[0].children;
+    }
 
+    return chapters;
+  });
+  isDisplayingChildrenOnly = computed(() => this.displayedChapters().length === 1);
+
+
+  readonly loadChapter = output<{
+    pageNum: number;
+    part: string;
+}>();
+
+  constructor() {
+    effect(() => {
+      const selectedChapterIdx = this.displayedChapters()
+        .findIndex(chapter => this.isChapterSelected(chapter));
+
+      if (selectedChapterIdx < 0) return;
+
+      setTimeout(() => {
+        const chapterElement = this.document.getElementById(`${selectedChapterIdx}`);
+        if (chapterElement) {
+          chapterElement.scrollIntoView({behavior: 'smooth'});
+        }
+      }, 10); // Some delay to allow the items to be rendered into the DOM
+    });
+  }
 
   cleanIdSelector(id: string) {
     const tokens = id.split('/');
@@ -46,7 +79,7 @@ export class TableOfContentsComponent {
 
   isChapterSelected(chapterGroup: BookChapterItem) {
     const currentPageNum = this.pageNum();
-    const chapters = this.chapters();
+    const chapters = this.displayedChapters();
 
     if (chapterGroup.page === currentPageNum) {
       return true;

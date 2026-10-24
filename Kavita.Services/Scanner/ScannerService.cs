@@ -1,0 +1,1264 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+using AutoMapper;
+using Hangfire;
+using Kavita.API.Database;
+using Kavita.API.Repositories;
+using Kavita.API.Services;
+using Kavita.API.Services.Metadata;
+using Kavita.API.Services.Scanner;
+using Kavita.API.Services.SignalR;
+using Kavita.Common.Extensions;
+using Kavita.Models.Builders;
+using Kavita.Models.DTOs.KavitaPlus.Metadata;
+using Kavita.Models.DTOs.MediaErrors;
+using Kavita.Models.DTOs.Settings;
+using Kavita.Models.DTOs.SignalR;
+using Kavita.Models.DTOs.SignalR.Bodies;
+using Kavita.Models.Entities;
+using Kavita.Models.Entities.Enums;
+using Kavita.Models.Parser;
+using Kavita.Models.Scanner;
+using Kavita.Services.Extensions;
+using Kavita.Services.Helpers;
+using Kavita.Services.Plus;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+namespace Kavita.Services.Scanner;
+
+public enum ScanCancelReason
+{
+    /// <summary>
+    /// Don't cancel, everything is good
+    /// </summary>
+    NoCancel = 0,
+    /// <summary>
+    /// A folder is completely empty or missing
+    /// </summary>
+    FolderMount = 1,
+    /// <summary>
+    /// There has been no change to the filesystem since last scan
+    /// </summary>
+    NoChange = 2,
+    /// <summary>
+    /// The underlying folder is missing
+    /// </summary>
+    FolderMissing = 3
+}
+
+/**
+ * Responsible for Scanning the disk and importing/updating/deleting files -> DB entities.
+ */
+public class ScannerService(
+    IUnitOfWork unitOfWork,
+    ILogger<ScannerService> logger,
+    IMetadataService metadataService,
+    ICacheService cacheService,
+    IEventHub eventHub,
+    IDirectoryService directoryService,
+    IReadingItemService readingItemService,
+    IServiceScopeFactory scopeFactory,
+    IMapper mapper)
+    : IScannerService
+{
+    private const int Timeout = 60 * 60 * 60; // 2.5 days
+    // A retry waits in Scheduled, which IsScannerBusy does not count, so it would run beside a scan started meanwhile
+    private const int RetryAttempts = 0;
+
+    /// <summary>
+    /// This is only used for v0.7 to get files analyzed
+    /// </summary>
+    public async Task AnalyzeFiles()
+    {
+        logger.LogInformation("Starting Analyze Files task");
+        var missingExtensions = await unitOfWork.MangaFileRepository.GetAllWithMissingExtension();
+        if (missingExtensions.Count == 0)
+        {
+            logger.LogInformation("Nothing to do");
+            return;
+        }
+
+        var sw = Stopwatch.StartNew();
+
+        foreach (var file in missingExtensions)
+        {
+            var fileInfo = directoryService.FileSystem.FileInfo.New(file.FilePath);
+            if (!fileInfo.Exists)continue;
+            file.Extension = fileInfo.Extension.ToLowerInvariant();
+            file.Bytes = fileInfo.Length;
+            unitOfWork.MangaFileRepository.Update(file);
+        }
+
+        await unitOfWork.CommitAsync();
+
+        logger.LogInformation("Completed Analyze Files task in {ElapsedTime}", sw.Elapsed);
+    }
+
+    /// <summary>
+    /// Given a generic folder path, will invoke a Series scan or Library scan.
+    /// </summary>
+    /// <remarks>Nothing is requested when a queued scan already covers the change</remarks>
+    public async Task ScanFolder(ScanFolderRequest request)
+    {
+        try
+        {
+            await RequestScanForFolder(request);
+        }
+        finally
+        {
+            await SendIfFolderStoppedWaiting(request.Folder);
+        }
+    }
+
+    /// <summary>
+    /// The activity widget lists waiting folders, so it is told when the last job for this folder has run
+    /// </summary>
+    private async Task SendIfFolderStoppedWaiting(string folder)
+    {
+        if (ScanJobQueue.Read().FolderJobs.Any(j => j.Request.Folder == folder)) return;
+        await eventHub.SendMessageAsync(MessageFactory.ScanRescheduled, TaskScheduler.ScanQueueChangedEvent());
+    }
+
+    private async Task RequestScanForFolder(ScanFolderRequest request)
+    {
+        var series = await FindSeriesForFolder(request.LibraryId, request.Folder, request.ChangedPath, request.AbortOnNoSeriesMatch);
+
+        if (series != null)
+        {
+            RequestScan(ScanTarget.Series(series.LibraryId, series.Id), request.Folder);
+            return;
+        }
+
+        if (request.AbortOnNoSeriesMatch)
+        {
+            logger.LogInformation("[ScannerService] Scan folder invoked for {Path} but no single series owns it. Dropping request, abortOnNoSeriesMatch is set",
+                request.ChangedPath);
+            return;
+        }
+
+        RequestScan(ScanTarget.Library(request.LibraryId), request.Folder);
+    }
+
+    internal void RequestScan(ScanTarget target, string folder)
+    {
+        lock (TaskScheduler.ScanRequestLock)
+        {
+            if (ScanJobQueue.Read().Jobs.FindAlreadyRequested(target) is { } covering)
+            {
+                logger.LogDebug("[ScannerService] Scan folder invoked for {Folder} but job {JobId} already covers it. Dropping request",
+                    folder, covering.JobId);
+                return;
+            }
+
+            var libraryId = target.LibraryId!.Value;
+            if (target.SeriesId is { } seriesId)
+            {
+                logger.LogDebug("[ScannerService] Scan folder invoked for {Folder}, requesting a scan of series {SeriesId}", folder, seriesId);
+                ScanJobQueue.Enqueue<ITaskScheduler>(t => t.EnqueueScanSeries(libraryId, seriesId, false));
+                return;
+            }
+
+            logger.LogDebug("[ScannerService] Scan folder invoked for {Folder}, requesting a scan of library {LibraryId}", folder, libraryId);
+            ScanJobQueue.Enqueue<ITaskScheduler>(t => t.EnqueueScanLibrary(libraryId, false));
+        }
+    }
+
+    /// <summary>
+    /// The one series that owns the changed path. Null when there is none, or when several could own it and only a
+    /// library scan would pick up a new series beside them
+    /// </summary>
+    /// <param name="seriesOrNothing">The caller drops the request on no match, so the only series whose top folder
+    /// is <paramref name="folder"/> is taken even when a new series beside it would be missed</param>
+    internal async Task<Series?> FindSeriesForFolder(int libraryId, string folder, string originalPath, bool seriesOrNothing = false)
+    {
+        var path = string.IsNullOrEmpty(originalPath) ? folder : originalPath;
+
+        var byLowestFolder = await unitOfWork.SeriesRepository.GetSeriesThatContainsLowestFolderPathAsync(libraryId, path, SeriesIncludes.Library);
+        if (byLowestFolder.Count == 1) return byLowestFolder[0];
+
+        if (byLowestFolder.Count > 1)
+        {
+            logger.LogInformation("[ScannerService] {Count} series share the folder of {Path}. Library scan will be used for ScanFolder",
+                byLowestFolder.Count, path);
+            return null;
+        }
+
+        // Every series under a publisher folder has it as FolderPath, and ScanSeries would drop a new series beside them
+        var byFolder = await unitOfWork.SeriesRepository.GetSeriesByFolderPathAsync(libraryId, folder, SeriesIncludes.Library);
+        if (byFolder.Count == 1 && (seriesOrNothing || string.IsNullOrEmpty(byFolder[0].LowestFolderPath))) return byFolder[0];
+
+        if (byFolder.Count > 0)
+        {
+            logger.LogInformation("[ScannerService] {Path} is not inside a single series folder. Library scan will be used for ScanFolder", path);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Scans just an existing Series for changes. If the series doesn't exist, will delete it.
+    /// </summary>
+    /// <param name="seriesId"></param>
+    /// <param name="bypassFolderOptimizationChecks">Forces the walk to read every file, ProcessSeries and word count. Covers always use their stamps.
+    /// The Scan Series button sends true, the folder watcher false</param>
+    [Queue(TaskScheduler.ScanQueue)]
+    [DisableConcurrentExecution(Timeout)]
+    [AutomaticRetry(Attempts = RetryAttempts, OnAttemptsExceeded = AttemptsExceededAction.Delete)]
+    public async Task ScanSeries(int seriesId, bool bypassFolderOptimizationChecks = true)
+    {
+        var sw = Stopwatch.StartNew();
+
+        var series = await unitOfWork.SeriesRepository.GetFullSeriesForSeriesIdAsync(seriesId);
+        if (series == null) return; // This can occur when UI deletes a series but doesn't update and user re-requests update
+
+        var settings = await unitOfWork.SettingsRepository.GetMetadataSettingDto();
+        var serverSettings = await unitOfWork.SettingsRepository.GetSettingsDtoAsync();
+
+        var existingChapterIdsToClean = await unitOfWork.SeriesRepository.GetChapterIdsForSeriesAsync(new[] {seriesId});
+
+        var library = await unitOfWork.LibraryRepository.GetLibraryForIdAsync(series.LibraryId, LibraryIncludes.Folders | LibraryIncludes.FileTypes | LibraryIncludes.ExcludePatterns);
+        if (library == null) return;
+
+        var libraryPaths = library.Folders.Select(f => f.Path).ToList();
+        if (await ShouldScanSeries(seriesId, library, libraryPaths) != ScanCancelReason.NoCancel) return;
+
+        List<string> folderPaths = [];
+        if (!string.IsNullOrEmpty(series.LowestFolderPath) && directoryService.Exists(series.LowestFolderPath))
+        {
+            folderPaths.Add(series.LowestFolderPath);
+        }
+        else
+        {
+            // Without a LowestFolderPath the files can sit in several top level folders, and FolderPath is only the first
+            var files = await unitOfWork.SeriesRepository.GetFilesForSeriesAsync(seriesId);
+            var seriesDirs = directoryService.FindHighestDirectoriesFromFiles(libraryPaths,
+                files.Select(f => f.FilePath).ToList());
+            if (seriesDirs.Keys.Count == 0)
+            {
+                logger.LogCritical("Scan Series has files spread outside a main series folder. Defaulting to library folder (this is expensive)");
+                await eventHub.SendMessageAsync(MessageFactory.Info, MessageFactory.FilesOutsideFolderEvent(series.LibraryId, series.Id, series.Name));
+            }
+
+            folderPaths.AddRange(seriesDirs.Keys);
+            if (folderPaths.Count == 0 && !string.IsNullOrEmpty(series.FolderPath) && directoryService.Exists(series.FolderPath))
+            {
+                folderPaths.Add(series.FolderPath);
+            }
+
+            // We should check if folderPath is a library folder path and if so, return early and tell user to correct their setup.
+            if (folderPaths.Exists(f => !libraryPaths.Any(f.IsInsideFolder)))
+            {
+                logger.LogCritical("[ScannerSeries] {SeriesName} scan aborted. Files for series are not in a nested folder under library path. Correct this and rescan", series.Name);
+                await eventHub.SendMessageAsync(MessageFactory.Error, MessageFactory.ScanSeriesNotNestedEvent(series.LibraryId, series.Id, series.Name));
+                return;
+            }
+        }
+
+        if (folderPaths.Count == 0)
+        {
+            logger.LogCritical("[ScannerSeries] Scan Series could not find a single, valid folder root for files");
+            await eventHub.SendMessageAsync(MessageFactory.Error, MessageFactory.ScanSeriesNoRootEvent(series.LibraryId, series.Id, series.Name));
+            return;
+        }
+
+        var seriesScan = new SeriesScanTargetDto(series.Id, series.Name);
+        await eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
+            MessageFactory.LibraryScanProgressEvent(library.Id, library.Name, ProgressEventType.Started, series.Name, 1, seriesScan: seriesScan));
+
+        logger.LogInformation("Beginning file scan on {SeriesName}", series.Name);
+        var scanStarted = DateTime.Now;
+        var scanStartedUtc = DateTime.UtcNow;
+        var (scanElapsedTime, parsedSeries, savedIssues, unreadableFolders, _, readFolders) = await ScanFiles(library, folderPaths,
+            false, bypassFolderOptimizationChecks, series.Id);
+
+        if (unreadableFolders.Count > 0)
+        {
+            await eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.UnreadableFoldersEvent(library.Id, library.Name, unreadableFolders));
+        }
+
+        logger.LogInformation("ScanFiles for {Series} took {Time} milliseconds", series.Name, scanElapsedTime);
+
+        // Remove any parsedSeries keys that don't belong to our series. This can occur when users store 2 series in the same folder
+        RemoveParsedInfosNotForSeries(parsedSeries, series);
+
+        var tally = new ScanTally();
+
+        // If nothing was found, first validate any of the files still exist. If they don't then we have a deletion and can skip the rest of the logic flow
+        if (parsedSeries.Count == 0)
+        {
+             var seriesFiles = (await unitOfWork.SeriesRepository.GetFilesForSeriesAsync(series.Id));
+             if (!string.IsNullOrEmpty(series.FolderPath) &&
+                 !seriesFiles.Where(f => f.FilePath.IsInsideFolder(series.FolderPath)).Any(m => File.Exists(m.FilePath)))
+             {
+                 try
+                 {
+                     unitOfWork.SeriesRepository.Remove(series);
+                     await CommitAndSend(1, sw, scanElapsedTime, series);
+                     await eventHub.SendMessageAsync(MessageFactory.SeriesRemoved,
+                         MessageFactory.SeriesRemovedEvent(seriesId, series.LibraryId), false);
+                     tally.SeriesRemoved++;
+                 }
+                 catch (Exception ex)
+                 {
+                     logger.LogCritical(ex, "There was an error during ScanSeries to delete the series as no files could be found. Aborting scan");
+                     await unitOfWork.RollbackAsync();
+                     await eventHub.SendMessageAsync(MessageFactory.Error,
+                         MessageFactory.DbWriteFailedEvent(series.LibraryId, series.Id, series.Name, ex.Message));
+                     return;
+                 }
+             }
+             else
+             {
+                 // I think we should just fail and tell user to fix their setup. This is extremely expensive for an edge case
+                 logger.LogCritical("We weren't able to find any files in the series scan, but there should be. Please correct your naming convention or put Series in a dedicated folder. Aborting scan");
+                 await eventHub.SendMessageAsync(MessageFactory.Error,
+                     MessageFactory.ScanSeriesNoFilesEvent(series.LibraryId, series.Id, series.Name));
+                 await unitOfWork.RollbackAsync();
+                 await AssignScanIssuesAsync(library, savedIssues, series.Id);
+                 return;
+             }
+        }
+
+        // At this point, parsedSeries will have at least one key then we can perform the update. If it still doesn't, just return and don't do anything
+        // Don't allow any processing on files that aren't part of this series
+        var toProcess = parsedSeries.Keys.Where(key =>
+            key.ExistingSeriesId == series.Id ||
+            key.NormalizedName.Equals(series.NormalizedName) ||
+            key.NormalizedName.Equals(series.NormalizedOriginalName))
+            .ToList();
+
+        var toProcessList = toProcess.Select(k => parsedSeries[k]).ToList();
+        var totalCount = toProcessList.Count;
+        var seriesLeftToProcess = totalCount;
+
+        foreach (var pSeries in toProcessList)
+        {
+            using var scope = scopeFactory.CreateScope();
+            var processSeries = scope.ServiceProvider.GetRequiredService<IProcessSeries>();
+            var unitOfWorkScoped = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+            var scopedLibrary = (await unitOfWorkScoped.LibraryRepository.GetLibraryForIdAsync(library.Id,
+                LibraryIncludes.Folders | LibraryIncludes.FileTypes | LibraryIncludes.ExcludePatterns))!;
+
+            var result = await processSeries.ProcessSeriesAsync(settings, pSeries, new ProcessSeriesArgs
+            {
+                Library = scopedLibrary,
+                LeftToProcess = seriesLeftToProcess,
+                TotalToProcess = totalCount,
+                ForceUpdate = bypassFolderOptimizationChecks,
+                ScanStarted = scanStarted,
+                SeriesScan = seriesScan,
+            });
+            tally.Add(result);
+
+            if (result.SeriesId != null)
+            {
+                var metadataServiceScoped = scope.ServiceProvider.GetRequiredService<IMetadataService>();
+                var wordCountAnalyzerServiceScoped = scope.ServiceProvider.GetRequiredService<IWordCountAnalyzerService>();
+
+                await metadataServiceScoped.GenerateCoversForSeries(serverSettings, scopedLibrary.Id, result.SeriesId.Value, false, false);
+                await wordCountAnalyzerServiceScoped.ScanSeries(scopedLibrary.Id, result.SeriesId.Value, bypassFolderOptimizationChecks);
+            }
+
+            seriesLeftToProcess--;
+        }
+
+        if (!bypassFolderOptimizationChecks)
+        {
+            await AuditFolderWatchAsync(library.Id, readFolders, scanStartedUtc, false);
+        }
+
+        var issues = await ReportScanIssuesAsync(library, savedIssues, series.Id);
+        await metadataService.RemoveAbandonedMetadataKeys();
+
+        // Tell UI that this series is done
+        await eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
+            MessageFactory.LibraryScanEndedEvent(tally.ToEventBody(library, issues, true), series.Name));
+
+        BackgroundJob.Enqueue(() => cacheService.CleanupChapters(existingChapterIdsToClean));
+        BackgroundJob.Enqueue(() => directoryService.ClearDirectory(directoryService.CacheDirectory));
+    }
+
+    private static Dictionary<ParsedSeries, IList<ParserInfo>> TrackFoundSeriesAndFiles(IList<ScannedSeriesResult> seenSeries,
+        IList<SeriesNameMatch> existingSeries)
+    {
+        var parsedSeries = new Dictionary<ParsedSeries, IList<ParserInfo>>();
+
+        var existingByName = existingSeries
+            .SelectMany(s => new[] { s.NormalizedName, s.NormalizedLocalizedName, s.NormalizedOriginalName }
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Distinct()
+                .Select(name => (Name: name, Series: s)))
+            .ToLookup(x => x.Name, x => x.Series);
+
+        // One series can arrive under several names (once per folder, or a folder named after its LocalizedName).
+        // Processed apart, each group deletes the files the other one read
+        var seriesAcrossFolders = seenSeries
+            .Where(s => s.ParsedInfos.Count > 0)
+            .Select(s => (Result: s, SeriesId: FindExistingSeriesId(s, existingByName)))
+            .GroupBy(s => s.SeriesId != null
+                ? (s.SeriesId, string.Empty, MangaFormat.Unknown)
+                : ((int?) null, s.Result.ParsedSeries.NormalizedName, s.Result.ParsedSeries.Format),
+                s => s.Result);
+
+        foreach (var series in seriesAcrossFolders)
+        {
+            var key = series.First().ParsedSeries;
+            key.ExistingSeriesId = series.Key.Item1;
+            key.HasChanged = series.Any(s => s.HasChanged);
+            key.HasMissingFiles = series.Any(s => s.HasMissingFiles);
+
+            if (key.HasChanged)
+            {
+                parsedSeries.Add(key, [.. series.SelectMany(s => s.ParsedInfos)]);
+            }
+            else
+            {
+                parsedSeries.Add(key, []);
+            }
+        }
+
+        return parsedSeries;
+    }
+
+    private static int? FindExistingSeriesId(ScannedSeriesResult result, ILookup<string, SeriesNameMatch> existingByName)
+    {
+        var names = result.ParsedInfos
+            .Select(info => info.LocalizedSeries?.ToNormalized())
+            .Prepend(result.ParsedSeries.NormalizedName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .Distinct();
+
+        var ids = names
+            .SelectMany(name => existingByName[name!])
+            .Where(s => s.Format == result.ParsedSeries.Format || s.Format == MangaFormat.Unknown)
+            .Select(s => s.Id)
+            .Distinct()
+            .ToList();
+
+        return ids.Count == 1 ? ids[0] : null;
+    }
+
+    private async Task<ScanCancelReason> ShouldScanSeries(int seriesId, Library library, IList<string> libraryPaths)
+    {
+        var seriesFolderPaths = (await unitOfWork.SeriesRepository.GetFilesForSeriesAsync(seriesId))
+            .Select(f => directoryService.FileSystem.FileInfo.New(f.FilePath).Directory?.FullName ?? string.Empty)
+            .Where(f => !string.IsNullOrEmpty(f))
+            .Distinct()
+            .ToList();
+
+        // CheckMounts would treat an emptied or unreadable series folder as a lost mount and abort the scan
+        if (!await CheckDrivesMounted(library.Id, library.Name, seriesFolderPaths))
+        {
+            logger.LogWarning("[ScannerService] Scan of series {SeriesId} aborted, one of its folders failed the mount check", seriesId);
+            return ScanCancelReason.FolderMount;
+        }
+
+        if (!await CheckMounts(library.Id, library.Name, libraryPaths))
+        {
+            logger.LogWarning("[ScannerService] Scan of series {SeriesId} aborted, a root folder of {LibraryName} failed the mount check",
+                seriesId, library.Name);
+            return ScanCancelReason.FolderMount;
+        }
+
+        return ScanCancelReason.NoCancel;
+    }
+
+    private void RemoveParsedInfosNotForSeries(Dictionary<ParsedSeries, IList<ParserInfo>> parsedSeries, Series series)
+    {
+        var keysToRemove = parsedSeries.Keys
+            .Where(key => key.ExistingSeriesId != series.Id && !SeriesHelper.FindSeries(series, key))
+            .ToList();
+
+        foreach (var key in keysToRemove)
+        {
+            var fileNames = parsedSeries[key].Select(info => info.Filename).ToList();
+            logger.LogDebug("Removing files {FilePaths} for {SeriesName} as no match was found. {@ParsedSeries}. ",
+                fileNames, series.Name, key);
+
+            parsedSeries.Remove(key);
+        }
+    }
+
+    private async Task CommitAndSend(int seriesCount, Stopwatch sw, long scanElapsedTime, Series series)
+    {
+        if (unitOfWork.HasChanges())
+        {
+            await unitOfWork.CommitAsync();
+            logger.LogInformation(
+                "Processed files and {SeriesCount} series in {ElapsedScanTime} milliseconds for {SeriesName}",
+                seriesCount, sw.ElapsedMilliseconds + scanElapsedTime, series.Name);
+        }
+    }
+
+    /// <summary>
+    /// False, with an event to the UI, when the drive of any folder is not available (ie disconnected from network)
+    /// </summary>
+    private async Task<bool> CheckDrivesMounted(int libraryId, string libraryName, IList<string> folders)
+    {
+        var unmountedFolders = folders.Where(f => !directoryService.IsDriveMounted(f)).ToArray();
+        if (unmountedFolders.Length == 0) return true;
+
+        logger.LogCritical("[ScannerService] Some of the root folders for library ({LibraryName} are not accessible. Please check that drives are connected and rescan. Scan will be aborted", libraryName);
+        await eventHub.SendMessageAsync(MessageFactory.Error,
+            MessageFactory.RootFoldersInaccessibleEvent(libraryId, libraryName, unmountedFolders));
+
+        return false;
+    }
+
+    /// <summary>
+    /// Ensure that all library folders are mounted. In the case that any are empty or non-existent, emit an event to the UI via EventHub and return false
+    /// </summary>
+    /// <param name="libraryId"></param>
+    /// <param name="libraryName"></param>
+    /// <param name="folders"></param>
+    /// <returns></returns>
+    private async Task<bool> CheckMounts(int libraryId, string libraryName, IList<string> folders)
+    {
+        if (!await CheckDrivesMounted(libraryId, libraryName, folders)) return false;
+
+        var unreadableFolders = new List<string>();
+        var anyEmpty = false;
+        foreach (var folder in folders)
+        {
+            try
+            {
+                anyEmpty |= directoryService.IsDirectoryEmpty(folder);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                logger.LogWarning(ex, "[ScannerService] Could not list {Folder}", folder);
+                unreadableFolders.Add(Parser.NormalizePath(folder));
+            }
+        }
+
+        if (unreadableFolders.Count > 0)
+        {
+            logger.LogError("[ScannerService] Some of the root folders for library {LibraryName} could not be read. Scan has been aborted", libraryName);
+            await eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.RootFoldersUnreadableEvent(libraryId, libraryName, unreadableFolders));
+
+            return false;
+        }
+
+        // For Docker instances check if any of the folder roots are not available (ie disconnected volumes, etc) and fail if any of them are
+        if (anyEmpty)
+        {
+            // That way logging and UI informing is all in one place with full context
+            logger.LogError("[ScannerService] Some of the root folders for the library are empty. " +
+                             "Either your mount has been disconnected or you are trying to delete all series in the library. " +
+                             "Scan has been aborted. " +
+                             "Check that your mount is connected or change the library's root folder and rescan");
+
+            await eventHub.SendMessageAsync(MessageFactory.Error, MessageFactory.RootFoldersEmptyEvent(libraryId, libraryName));
+
+            return false;
+        }
+
+        return true;
+    }
+
+    [Queue(TaskScheduler.ScanQueue)]
+    [DisableConcurrentExecution(Timeout)]
+    [AutomaticRetry(Attempts = RetryAttempts, OnAttemptsExceeded = AttemptsExceededAction.Delete)]
+    public async Task ScanLibraries(bool forceUpdate = false)
+    {
+        logger.LogInformation("[ScannerService] Starting Scan of All Libraries, Forced: {Forced}", forceUpdate);
+        var libraries = (await unitOfWork.LibraryRepository.GetLibrariesAsync()).ToList();
+        foreach (var lib in libraries)
+        {
+            if (ScanJobQueue.Read().Jobs.HasLibraryScan(lib.Id))
+            {
+                // We don't need to send SignalR event as this is a background job that user doesn't need insight into
+                logger.LogInformation("[ScannerService] Scan library invoked via nightly scan job but a task is already running for {LibraryName}. Rescheduling for 4 hours", lib.Name);
+                await Task.Delay(TimeSpan.FromHours(4));
+            }
+
+            var isLastLibrary = lib == libraries[^1];
+            try
+            {
+                await ScanLibrary(lib.Id, forceUpdate, endsJob: isLastLibrary);
+            }
+            catch (Exception)
+            {
+                logger.LogInformation("[ScannerService] Moving on to the next library after {LibraryName} failed", lib.Name);
+            }
+        }
+
+        logger.LogInformation("[ScannerService] Scan of All Libraries Finished");
+    }
+
+
+    /// <summary>
+    /// Scans a library for file changes.
+    /// Will kick off a scheduled background task to refresh metadata,
+    /// ie) all entities will be rechecked for new cover images and comicInfo.xml changes
+    /// </summary>
+    /// <param name="libraryId"></param>
+    /// <param name="forceUpdate">Defaults to false</param>
+    /// <param name="endsJob">No other library is scanned after this, in the same job; sent to the UI on the scan ended event to close widget row.</param>
+    [Queue(TaskScheduler.ScanQueue)]
+    [DisableConcurrentExecution(Timeout)]
+    [AutomaticRetry(Attempts = RetryAttempts, OnAttemptsExceeded = AttemptsExceededAction.Delete)]
+    public async Task ScanLibrary(int libraryId, bool forceUpdate = false, bool endsJob = true)
+    {
+        var sw = Stopwatch.StartNew();
+        var library = await unitOfWork.LibraryRepository.GetLibraryForIdAsync(libraryId,
+            LibraryIncludes.Folders | LibraryIncludes.FileTypes | LibraryIncludes.ExcludePatterns);
+        if (library == null)
+        {
+            logger.LogInformation("[ScannerService] Library {LibraryId} no longer exists, skipping its scan", libraryId);
+            return;
+        }
+
+        var libraryFolderPaths = library.Folders.Select(fp => fp.Path).ToList();
+        if (!await CheckMounts(library.Id, library.Name, libraryFolderPaths)) return;
+
+        try
+        {
+            await ScanLibraryFolders(library, libraryFolderPaths, forceUpdate, endsJob, sw);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[ScannerService] Scan of {LibraryName} failed", library.Name);
+            await eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.LibraryScanFailedEvent(library.Id, library.Name, ex.Message));
+            await eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
+                MessageFactory.LibraryScanEndedEvent(new ScanTally().ToEventBody(library, new ScanIssueSummaryDto(0, 0, []), endsJob)));
+            throw;
+        }
+
+        BackgroundJob.Enqueue(() => directoryService.ClearDirectory(directoryService.CacheDirectory));
+    }
+
+    private async Task ScanLibraryFolders(Library library, List<string> libraryFolderPaths, bool forceUpdate, bool endsJob, Stopwatch sw)
+    {
+        logger.LogInformation("[ScannerService] Beginning file scan on {LibraryName}", library.Name);
+
+        if (!library.EnableMetadata)
+        {
+            logger.LogInformation("[ScannerService] Warning! {LibraryName} has metadata turned off", library.Name);
+        }
+
+        // This doesn't work for something like M:/Manga/ and a series has library folder as root
+        var shouldUseLibraryScan = !(await unitOfWork.LibraryRepository.DoAnySeriesFoldersMatch(libraryFolderPaths));
+        if (!shouldUseLibraryScan)
+        {
+            logger.LogDebug("[ScannerService] Library {LibraryName} consists of one or more Series folders as a library root, using series scan", library.Name);
+        }
+
+
+        logger.LogDebug("[ScannerService] Library {LibraryName} Step 1: Scan & Parse Files", library.Name);
+        var scanStarted = DateTime.Now;
+        var scanStartedUtc = DateTime.UtcNow;
+        var (scanElapsedTime, parsedSeries, savedIssues, unreadableFolders, scanRun, readFolders) = await ScanFiles(library, libraryFolderPaths,
+            shouldUseLibraryScan, forceUpdate);
+
+        // We need to remove any keys where there is no actual parser info
+        logger.LogDebug("[ScannerService] Library {LibraryName} Step 2: Process and Update Database", library.Name);
+        var tally = await ProcessParsedSeries(forceUpdate, parsedSeries, library, scanElapsedTime, scanStarted);
+
+        library.UpdateLastScanned(DateTime.Now);
+        scanRun = scanRun with { AtUtc = DateTime.UtcNow, DurationMs = sw.ElapsedMilliseconds };
+        library.ScanInfo = forceUpdate
+            ? library.ScanInfo with { Forced = scanRun }
+            : library.ScanInfo with { Normal = scanRun };
+        unitOfWork.LibraryRepository.Update(library);
+
+        logger.LogDebug("[ScannerService] Library {LibraryName} Step 3: Save Library", library.Name);
+        if (await unitOfWork.CommitAsync())
+        {
+            logger.LogDebug("[ScannerService] Library {LibraryName} Step 5: Remove Deleted Series", library.Name);
+            tally.SeriesRemoved += await RemoveSeriesNotFound(parsedSeries, library);
+
+            if (!tally.HasChanges && tally.SeriesFailed == 0)
+            {
+                logger.LogInformation(
+                    "[ScannerService] Finished library scan of {ParsedSeriesCount} series in {ElapsedScanTime} milliseconds for {LibraryName}. There were no changes",
+                    parsedSeries.Count, sw.ElapsedMilliseconds, library.Name);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "[ScannerService] Finished library scan of {TotalFiles} files and {ParsedSeriesCount} series in {ElapsedScanTime} milliseconds for {LibraryName}: " +
+                    "{SeriesAdded} series added, {SeriesRemoved} removed, {SeriesFailed} failed, {ChaptersAdded} chapters added, {ChaptersUpdated} updated, {ChaptersRemoved} removed",
+                    tally.TotalFiles, parsedSeries.Count, sw.ElapsedMilliseconds, library.Name,
+                    tally.SeriesAdded, tally.SeriesRemoved, tally.SeriesFailed, tally.ChaptersAdded, tally.ChaptersUpdated, tally.ChaptersRemoved);
+            }
+        }
+        else
+        {
+            logger.LogCritical(
+                "[ScannerService] There was a critical error that resulted in a failed scan. Please check logs and rescan");
+        }
+
+        if (!forceUpdate)
+        {
+            await AuditFolderWatchAsync(library.Id, readFolders, scanStartedUtc, true);
+        }
+
+        var issues = await ReportScanIssuesAsync(library, savedIssues);
+
+        if (unreadableFolders.Count > 0)
+        {
+            await eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.UnreadableFoldersEvent(library.Id, library.Name, unreadableFolders));
+        }
+
+        await metadataService.RemoveAbandonedMetadataKeys();
+        await eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
+            MessageFactory.LibraryScanEndedEvent(tally.ToEventBody(library, issues, endsJob)));
+    }
+
+    /// <summary>
+    /// A failed audit is logged and never fails the scan
+    /// </summary>
+    private async Task AuditFolderWatchAsync(int libraryId, IReadOnlySet<string> readFolders, DateTime scanStartedUtc, bool isLibraryScan)
+    {
+        try
+        {
+            // Not a constructor dependency: FolderWatchService takes ITaskScheduler, which takes this service
+            using var scope = scopeFactory.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<IFolderWatchService>()
+                .AuditScanAsync(libraryId, readFolders, scanStartedUtc, isLibraryScan);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[ScannerService] Could not check the folder watcher against this scan");
+        }
+    }
+
+    /// <returns>How many series were removed</returns>
+    private async Task<int> RemoveSeriesNotFound(Dictionary<ParsedSeries, IList<ParserInfo>> parsedSeries, Library library)
+    {
+        try
+        {
+            logger.LogDebug("[ScannerService] Removing series that were not found during the scan");
+
+            var removedSeries = await unitOfWork.SeriesRepository.RemoveSeriesNotInListAsync(parsedSeries.Keys.ToList(), library.Id);
+            logger.LogDebug("[ScannerService] Found {Count} series to remove: {SeriesList}",
+                removedSeries.Count, string.Join(", ", removedSeries.Select(s => s.Name)));
+
+            // Commit the changes
+            await unitOfWork.CommitAsync();
+
+            // Notify for each removed series
+            foreach (var series in removedSeries)
+            {
+                await eventHub.SendMessageAsync(
+                    MessageFactory.SeriesRemoved,
+                    MessageFactory.SeriesRemovedEvent(series.Id, series.LibraryId),
+                    false
+                );
+            }
+
+            logger.LogDebug("[ScannerService] Series removal process completed");
+            return removedSeries.Count;
+        }
+        catch (Exception ex)
+        {
+            logger.LogCritical(ex, "[ScannerService] Error during series cleanup. Please check logs and rescan");
+            await eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.SeriesRemovalFailedEvent(library.Id, library.Name));
+            return 0;
+        }
+    }
+
+    private async Task<ScanTally> ProcessParsedSeries(bool forceUpdate, Dictionary<ParsedSeries, IList<ParserInfo>> parsedSeries, Library library,
+        long scanElapsedTime, DateTime scanStarted)
+    {
+        // Iterate over the dictionary and remove only the ParserInfos that don't need processing
+        var toProcess = new Dictionary<ParsedSeries, IList<ParserInfo>>();
+        var scanSw = Stopwatch.StartNew();
+
+        var settings = await unitOfWork.SettingsRepository.GetMetadataSettingDto();
+
+        foreach (var series in parsedSeries)
+        {
+            if (!series.Key.HasChanged)
+            {
+                logger.LogDebug("{Series} hasn't changed", series.Key.Name);
+                continue;
+            }
+
+            if (series.Key.HasMissingFiles || series.Value.Any(info => !string.IsNullOrEmpty(info.Filename)))
+            {
+                toProcess[series.Key] = series.Value.Where(info => !string.IsNullOrEmpty(info.Filename) || info.IsPlaceholder).ToList();
+            }
+        }
+
+        if (toProcess.Count > 0)
+        {
+            // For all Genres in the ParserInfos, do a bulk check against the DB on what is not in the DB and create them
+            // This will ensure all Genres are pre-created and allow our Genre lookup (and Priming) to be much simpler. It will be slower, but more consistent.
+            var allGenres = toProcess
+                .SelectMany(s => s.Value
+                    .SelectMany(p => p.ComicInfo?.Genre?
+                                         .Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                     ?? []))
+                .Distinct()
+                .ToList();
+
+            var allTags = toProcess
+                .SelectMany(s => s.Value
+                    .SelectMany(p => p.ComicInfo?.Tags?
+                                         .Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                     ?? []))
+                .Distinct()
+                .ToList();
+
+            ExternalMetadataService.GenerateExternalGenreAndTagsList(allGenres, allTags, settings,
+                out var processedTags, out var processedGenres);
+
+            await CreateAllGenresAsync(processedGenres);
+            await CreateAllTagsAsync(processedTags);
+        }
+
+        logger.LogInformation("[ScannerService] Found {SeriesCount} Series that need processing in {Time} ms", toProcess.Count, scanSw.ElapsedMilliseconds + scanElapsedTime);
+
+        var tally = await ProcessParserInfo(settings, toProcess.Values.ToList(), library, forceUpdate, scanStarted);
+
+        logger.LogInformation("[ScannerService] Finished scan in {ScanAndUpdateTime} milliseconds.", scanSw.ElapsedMilliseconds + scanElapsedTime);
+
+        return tally;
+    }
+
+    /// <summary>
+    /// Runs metadata updates (database heavy) and extra tasks (I/O heavy) in parallel
+    /// </summary>
+    /// <param name="settings"></param>
+    /// <param name="toProcess"></param>
+    /// <param name="library"></param>
+    /// <param name="forceUpdate"></param>
+    /// <param name="scanStarted"></param>
+    private async Task<ScanTally> ProcessParserInfo(MetadataSettingsDto settings, IList<IList<ParserInfo>> toProcess, Library library,
+        bool forceUpdate, DateTime scanStarted)
+    {
+        var channel = Channel.CreateUnbounded<int>();
+
+        var serverSettings = await unitOfWork.SettingsRepository.GetSettingsDtoAsync();
+
+        var dbTask = Task.Run(async () => await DbMetadataTask(channel, settings, toProcess, library.Id, library.Name, forceUpdate, scanStarted));
+
+        var amountOfProcessors = Environment.ProcessorCount;
+        var usingCount = Math.Max(1, amountOfProcessors / 2);
+        logger.LogDebug("[ScannerService] Going to use {Cores} / {TotalCores} threads for I/O tasks this scan",
+            usingCount, amountOfProcessors);
+
+        IList<Task<long>> tasks = [];
+        for (var i = 0; i < usingCount; i++)
+        {
+            tasks.Add(Task.Run(async () => await ExtraWorkTask(channel, serverSettings, library.Id, forceUpdate)));
+        }
+
+        await Task.WhenAll(tasks.Append<Task>(dbTask));
+
+        var totalIoTime = tasks.Select(t => t.Result).Sum();
+        var avgTimePerThread = totalIoTime / usingCount;
+        logger.LogDebug("[ScannerService] Spend {Elapsed}ms processing covers & word count, {Average}ms per thread",
+            totalIoTime, avgTimePerThread);
+
+        return dbTask.Result;
+    }
+
+    /// <summary>
+    /// A thread handling cover generation and word count. Completes when the channel completes
+    /// </summary>
+    /// <param name="channel"></param>
+    /// <param name="serverSettings"></param>
+    /// <param name="libraryId"></param>
+    /// <param name="forceUpdate"></param>
+    /// <returns></returns>
+    private async Task<long> ExtraWorkTask(Channel<int> channel, ServerSettingDto serverSettings, int libraryId, bool forceUpdate)
+    {
+        var sw = Stopwatch.StartNew();
+
+        await foreach (var seriesId in channel.Reader.ReadAllAsync())
+        {
+            using var scope = scopeFactory.CreateScope();
+            var metadataServiceScoped = scope.ServiceProvider.GetRequiredService<IMetadataService>();
+            var wordCountAnalyzerServiceScoped = scope.ServiceProvider.GetRequiredService<IWordCountAnalyzerService>();
+
+            await metadataServiceScoped.GenerateCoversForSeries(serverSettings, libraryId, seriesId, false, false);
+            await wordCountAnalyzerServiceScoped.ScanSeries(libraryId, seriesId, forceUpdate);
+        }
+
+        return sw.ElapsedMilliseconds;
+    }
+
+    /// <summary>
+    /// Processes all founds series sequentially, and writes the seriesIds to the channel afterwards
+    /// </summary>
+    /// <param name="channel"></param>
+    /// <param name="settings"></param>
+    /// <param name="toProcess"></param>
+    /// <param name="libraryId"></param>
+    /// <param name="libraryName"></param>
+    /// <param name="forceUpdate"></param>
+    /// <param name="scanStarted"></param>
+    private async Task<ScanTally> DbMetadataTask(Channel<int> channel, MetadataSettingsDto settings,
+        IList<IList<ParserInfo>> toProcess, int libraryId, string libraryName, bool forceUpdate, DateTime scanStarted)
+    {
+        var tally = new ScanTally();
+        var seriesLeftToProcess = toProcess.Count;
+        var totalSeriesToProcess = toProcess.Count;
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            foreach (var pSeries in toProcess)
+            {
+                // Placeholders for skipped folders aren't files
+                tally.TotalFiles += pSeries.Count(info => !info.IsPlaceholder);
+
+                using var scope = scopeFactory.CreateScope();
+                var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+                var processSeries = scope.ServiceProvider.GetRequiredService<IProcessSeries>();
+
+                // Library needs to be returned from the used UnitOfWork
+                var library = (await unitOfWork.LibraryRepository.GetLibraryForIdAsync(libraryId,
+                    LibraryIncludes.Folders | LibraryIncludes.FileTypes | LibraryIncludes.ExcludePatterns))!;
+
+                var result = await processSeries.ProcessSeriesAsync(settings, pSeries, new ProcessSeriesArgs
+                {
+                    Library = library,
+                    LeftToProcess = seriesLeftToProcess,
+                    TotalToProcess = totalSeriesToProcess,
+                    ForceUpdate = forceUpdate,
+                    ScanStarted = scanStarted,
+                });
+                tally.Add(result);
+
+                if (result.SeriesId != null)
+                {
+                    await channel.Writer.WriteAsync(result.SeriesId.Value);
+                }
+
+                seriesLeftToProcess--;
+            }
+        }
+        finally // Ensure the channel is closed in case of an exception that we didn't expect
+        {
+            channel.Writer.Complete();
+        }
+
+        // Not an ended: ScanLibrary sends that after the commit. Progress 1 tells the widget covers and word count are what remain
+        if (totalSeriesToProcess > 0)
+        {
+            await eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
+                MessageFactory.LibraryScanProgressEvent(libraryId, libraryName, ProgressEventType.Updated, string.Empty, 0, totalSeriesToProcess));
+        }
+
+        logger.LogDebug("[ScannerService] Finished writing metadata for {Count} series in {Elapsed}ms", toProcess.Count, sw.ElapsedMilliseconds);
+
+        return tally;
+    }
+
+    /// <param name="seriesId">Loads only this series' known files, for a series scan</param>
+    /// <returns>How long the walk took, the parsed series, the issues saved, and the counts and step times for <see cref="Library.ScanInfo"/></returns>
+    private async Task<ScanFilesResult> ScanFiles(Library library, IList<string> dirs, bool isLibraryScan, bool forceChecks = false,
+        int? seriesId = null)
+    {
+        var scanner = new ParseScannedFiles(logger, directoryService, readingItemService, eventHub);
+        var scanWatch = Stopwatch.StartNew();
+        var stepWatch = Stopwatch.StartNew();
+
+        var known = new KnownSeriesFolders(await unitOfWork.SeriesRepository.GetFolderPathMapAsync(library.Id, seriesId), forceChecks);
+        var folderMapMs = stepWatch.ElapsedMilliseconds;
+
+        stepWatch.Restart();
+        var problemFiles = await unitOfWork.MediaErrorRepository.GetFailedFilesAsync(library.Id);
+        var failedFilesMs = stepWatch.ElapsedMilliseconds;
+
+        stepWatch.Restart();
+        var processedSeries = await scanner.ScanLibrariesForSeries(library, dirs,
+            isLibraryScan, known, problemFiles);
+        var scanAndParseMs = stepWatch.ElapsedMilliseconds;
+
+        stepWatch.Restart();
+        // This is the one time backfill we must do in v0.9.2 to ensure all files have FileLastWriteTime which is critical to the new Change Detection work
+        await unitOfWork.MangaFileRepository.SetFileLastWriteTimesAsync(scanner.WriteTimesToBackfill);
+        var backfillMs = stepWatch.ElapsedMilliseconds;
+
+        stepWatch.Restart();
+        var savedIssues = await SaveScanIssuesAsync(library, scanner);
+        await RemoveChangedProducerErrorsAsync(library, scanner);
+        await RemoveErrorsForGoneFilesAsync(library, dirs, scanner);
+        var issuesMs = stepWatch.ElapsedMilliseconds;
+
+        var scanElapsedTime = scanWatch.ElapsedMilliseconds;
+
+        stepWatch.Restart();
+        var parsedSeries = TrackFoundSeriesAndFiles(processedSeries,
+            await unitOfWork.SeriesRepository.GetSeriesNameMatchesAsync(library.Id));
+        var nameMatchesMs = stepWatch.ElapsedMilliseconds;
+
+        var listMs = (long) scanner.ListTime.TotalMilliseconds;
+        var walkMs = (long) scanner.WalkTime.TotalMilliseconds;
+        var parseMs = (long) scanner.ParseTime.TotalMilliseconds;
+        var groupMs = (long) scanner.GroupTime.TotalMilliseconds;
+        logger.LogDebug("[ScannerService] Step 1 for {LibraryName}: folder map {FolderMapMs} ms ({FolderCount} folders), failed files {FailedFilesMs} ms, " +
+                        "list {ListMs} ms, walk {WalkMs} ms, parse {ParseMs} ms ({FilesParsed} files, {FilesKept} kept), group {GroupMs} ms, other {OtherMs} ms, " +
+                        "backfill {BackfillMs} ms, issues {IssuesMs} ms, name matches {NameMatchesMs} ms",
+            library.Name, folderMapMs, known.FolderCount, failedFilesMs,
+            listMs, walkMs, parseMs, scanner.ParsedFileCount, scanner.KeptFileCount, groupMs, scanAndParseMs - listMs - walkMs - parseMs - groupMs,
+            backfillMs, issuesMs, nameMatchesMs);
+
+        var scanRun = new LibraryScanInfo.ScanRun
+        {
+            WalkedFolderCount = scanner.WalkedFolderCount,
+            FilesParsed = scanner.ParsedFileCount,
+            ListMs = listMs,
+            WalkMs = walkMs,
+            ParseMs = parseMs
+        };
+
+        return new ScanFilesResult(scanElapsedTime, parsedSeries, savedIssues, scanner.UnreadableFolders, scanRun, scanner.ReadFolders);
+    }
+
+    /// <summary>
+    /// Saves one row per file with an issue and removes the rows of files that were read again without one, or are gone
+    /// </summary>
+    private async Task<SavedScanIssues> SaveScanIssuesAsync(Library library, ParseScannedFiles scanner)
+    {
+        var issues = scanner.Issues;
+        var resolved = scanner.ResolvedFailedFiles.ToHashSet();
+        var newCount = 0;
+
+        if (issues.Count <= 0 && resolved.Count <= 0)
+            return new SavedScanIssues(newCount, [], scanner.FilesInIssueFolders);
+
+        var paths = issues.Select(i => i.Path).ToList();
+
+        var rows = await unitOfWork.MediaErrorRepository.GetScannerErrorsAsync(library.Id, paths.Concat(resolved).ToList());
+        var rowsByPath = rows.GroupBy(r => r.FilePath)
+            .ToDictionary(g => g.Key, g => g.First());
+        var toRemove = rows
+            .Where(r => resolved.Contains(r.FilePath) || rowsByPath[r.FilePath] != r)
+            .ToList();
+
+        foreach (var issue in issues)
+        {
+            if (!rowsByPath.TryGetValue(issue.Path, out var row))
+            {
+                row = mapper.Map<MediaError>(issue);
+                row.LibraryId = library.Id;
+                unitOfWork.MediaErrorRepository.Attach(row);
+
+                if (!MediaErrorReasons.Imported.Contains(issue.Reason))
+                {
+                    newCount++;
+                }
+                continue;
+            }
+
+            var isSameFailure = row.Reason == issue.Reason && row.Bytes == issue.Bytes &&
+                                row.FileLastWriteTimeUtc is { } writeTime &&
+                                FolderChangeCheck.IsSameWriteTime(writeTime, issue.LastWriteTimeUtc);
+            mapper.Map(issue, row);
+            if (isSameFailure) continue;
+
+            row.IsDismissed = false;
+            if (!MediaErrorReasons.Imported.Contains(issue.Reason))
+            {
+                newCount++;
+            }
+        }
+
+        unitOfWork.MediaErrorRepository.Remove(toRemove);
+        await unitOfWork.CommitAsync();
+
+        return new SavedScanIssues(newCount, paths, scanner.FilesInIssueFolders);
+    }
+
+    /// <summary>
+    /// Removes the reader, cover and word count rows of files this scan listed with a new size or write time, or no longer listed
+    /// </summary>
+    private async Task RemoveChangedProducerErrorsAsync(Library library, ParseScannedFiles scanner)
+    {
+        if (scanner.ReadFolders.Count == 0) return;
+
+        var rows = await unitOfWork.MediaErrorRepository.GetProducerErrorsAsync(library.Id);
+        var changed = rows.Where(r => IsChangedOrGone(r, scanner)).ToList();
+        if (changed.Count == 0) return;
+
+        unitOfWork.MediaErrorRepository.Remove(changed);
+        await unitOfWork.CommitAsync();
+    }
+
+    /// <summary>
+    /// Removes the rows of files under the scanned folders whose folder the scan never came across and are gone from disk,
+    /// such as a deleted volume folder
+    /// </summary>
+    private async Task RemoveErrorsForGoneFilesAsync(Library library, IList<string> dirs, ParseScannedFiles scanner)
+    {
+        var roots = dirs.Select(Parser.NormalizePath).ToList();
+        var paths = await unitOfWork.MediaErrorRepository.GetFilePathsAsync(library.Id);
+        var gone = paths
+            .Where(p => roots.Exists(p.Value.IsInsideFolder) && scanner.IsUnaccountedFor(p.Value.FolderOf())
+                        && !directoryService.FileSystem.File.Exists(p.Value))
+            .Select(p => p.Key)
+            .ToList();
+        if (gone.Count == 0) return;
+
+        await unitOfWork.MediaErrorRepository.DeleteAsync(gone);
+    }
+
+    private static bool IsChangedOrGone(MediaError row, ParseScannedFiles scanner)
+    {
+        if (scanner.ReadFiles.TryGetValue(row.FilePath, out var stamp))
+        {
+            return row.Bytes != stamp.Bytes || row.FileLastWriteTimeUtc is not { } writeTime ||
+                   !FolderChangeCheck.IsSameWriteTime(writeTime, stamp.LastWriteTimeUtc);
+        }
+
+        return scanner.ReadFolders.Contains(row.FilePath.FolderOf());
+    }
+
+    /// <param name="NewCount">Files that could not be read with a new issue: first seen, or a new reason or stamp</param>
+    /// <param name="FilesByFolder">Every file listed directly in each folder with an issue</param>
+    private sealed class ScanTally
+    {
+        public int TotalFiles { get; set; }
+        public int SeriesAdded { get; private set; }
+        public int SeriesRemoved { get; set; }
+        public int SeriesFailed { get; private set; }
+        public int ChaptersAdded { get; private set; }
+        public int ChaptersUpdated { get; private set; }
+        public int ChaptersRemoved { get; private set; }
+        public bool HasChanges => SeriesAdded + SeriesRemoved + ChaptersAdded + ChaptersUpdated + ChaptersRemoved > 0;
+
+        public void Add(ProcessSeriesResult result)
+        {
+            if (result.SeriesAdded)
+            {
+                SeriesAdded++;
+            }
+            if (result.Failed)
+            {
+                SeriesFailed++;
+            }
+            ChaptersAdded += result.ChaptersAdded;
+            ChaptersUpdated += result.ChaptersUpdated;
+            ChaptersRemoved += result.ChaptersRemoved;
+        }
+
+        public LibraryScanEndedEventBodyDto ToEventBody(Library library, ScanIssueSummaryDto issues, bool endsJob) =>
+            new(library.Id, library.Name, SeriesAdded, SeriesRemoved, SeriesFailed, ChaptersAdded, ChaptersUpdated, ChaptersRemoved,
+                issues.Count, issues.NewCount, issues.Issues, endsJob);
+    }
+
+    /// <param name="ScanRun">Counts and step times; its time and duration are set when the library scan saves</param>
+    /// <param name="ReadFolders">Folders listed because they changed, which the folder watcher is audited against</param>
+    private sealed record ScanFilesResult(long ElapsedMs, Dictionary<ParsedSeries, IList<ParserInfo>> ParsedSeries, SavedScanIssues SavedIssues,
+        IReadOnlyList<string> UnreadableFolders, LibraryScanInfo.ScanRun ScanRun, IReadOnlySet<string> ReadFolders);
+
+    private sealed record SavedScanIssues(int NewCount, IList<string> Paths, IReadOnlyDictionary<string, IList<string>> FilesByFolder);
+
+    private async Task AssignScanIssuesAsync(Library library, SavedScanIssues savedIssues, int? scannedSeriesId)
+    {
+        await unitOfWork.MediaErrorRepository.AssignScannerErrorsToSeriesAsync(library.Id, savedIssues.Paths, savedIssues.FilesByFolder,
+            scannedSeriesId);
+        await unitOfWork.CommitAsync();
+    }
+
+    /// <summary>
+    /// Runs once the series are saved, so a row next to a series created this scan gets that series
+    /// </summary>
+    /// <param name="scannedSeriesId">Set by a series scan, for a row whose folder holds no known file</param>
+    private async Task<ScanIssueSummaryDto> ReportScanIssuesAsync(Library library, SavedScanIssues savedIssues, int? scannedSeriesId = null)
+    {
+        await AssignScanIssuesAsync(library, savedIssues, scannedSeriesId);
+
+        var summary = new ScanIssueSummaryDto(
+            await unitOfWork.MediaErrorRepository.GetUnreadableFileCountAsync(library.Id),
+            savedIssues.NewCount,
+            await unitOfWork.MediaErrorRepository.GetUnreadableFilesAsync(library.Id, ScanIssueSummaryDto.MaxIssues));
+        LogUnreadableFiles(library, summary);
+
+        return summary;
+    }
+
+    private void LogUnreadableFiles(Library library, ScanIssueSummaryDto summary)
+    {
+        if (summary.Count == 0) return;
+
+        var paths = string.Join(", ", summary.Issues.Select(i => i.FilePath));
+        var more = summary.Count > summary.Issues.Count ? $" and {summary.Count - summary.Issues.Count} more" : string.Empty;
+        logger.LogWarning("[ScannerService] {Count} file(s) in {LibraryName} could not be read: {Paths}{More}",
+            summary.Count, library.Name, paths, more);
+    }
+
+    /// <summary>
+    /// Given a list of all Genres, generates new Genre entries for any that do not exist.
+    /// Does not delete anything, that will be handled by nightly task
+    /// </summary>
+    /// <param name="genres"></param>
+    private async Task CreateAllGenresAsync(ICollection<string> genres)
+    {
+        logger.LogInformation("[ScannerService] Attempting to pre-save all Genres");
+
+        try
+        {
+            // Pass the non-normalized genres directly to the repository
+            var nonExistingGenres = await unitOfWork.GenreRepository.GetAllGenresNotInListAsync(genres);
+
+            // Create and attach new genres using the non-normalized names
+            foreach (var genre in nonExistingGenres)
+            {
+                var newGenre = new GenreBuilder(genre).Build();
+                unitOfWork.GenreRepository.Attach(newGenre);
+            }
+
+            // Commit changes
+            if (nonExistingGenres.Count > 0)
+            {
+                await unitOfWork.CommitAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[ScannerService] There was an unknown issue when pre-saving all Genres");
+        }
+    }
+
+    /// <summary>
+    /// Given a list of all Tags, generates new Tag entries for any that do not exist.
+    /// Does not delete anything, that will be handled by nightly task
+    /// </summary>
+    /// <param name="tags"></param>
+    private async Task CreateAllTagsAsync(ICollection<string> tags)
+    {
+        logger.LogInformation("[ScannerService] Attempting to pre-save all Tags");
+
+        try
+        {
+            // Pass the non-normalized tags directly to the repository
+            var nonExistingTags = await unitOfWork.TagRepository.GetAllTagsNotInListAsync(tags);
+
+            // Create and attach new genres using the non-normalized names
+            foreach (var tag in nonExistingTags)
+            {
+                var newTag = new TagBuilder(tag).Build();
+                unitOfWork.TagRepository.Attach(newTag);
+            }
+
+            // Commit changes
+            if (nonExistingTags.Count > 0)
+            {
+                await unitOfWork.CommitAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[ScannerService] There was an unknown issue when pre-saving all Tags");
+        }
+    }
+}

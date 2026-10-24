@@ -1,37 +1,36 @@
-import {Component, inject, Input} from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
-import { FilterPipe } from '../../../../_pipes/filter.pipe';
+import {ChangeDetectionStrategy, Component, computed, inject, input, signal} from '@angular/core';
+import {NgbActiveModal} from '@ng-bootstrap/ng-bootstrap';
 import {TranslocoDirective} from "@jsverse/transloco";
+import {FilterFieldComponent} from "../../../../shared/_components/filter-field/filter-field.component";
+import {filteredBy} from "../../../../_helpers/filtered";
 
 @Component({
-    selector: 'app-generic-list-modal',
-    templateUrl: './generic-list-modal.component.html',
-    styleUrls: ['./generic-list-modal.component.scss'],
-    imports: [ReactiveFormsModule, FilterPipe, TranslocoDirective]
+  selector: 'app-generic-list-modal',
+  templateUrl: './generic-list-modal.component.html',
+  styleUrls: ['./generic-list-modal.component.scss'],
+  imports: [TranslocoDirective, FilterFieldComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class GenericListModalComponent {
   private readonly modal = inject(NgbActiveModal);
 
-  @Input() items: Array<string> = [];
-  @Input() title: string = '';
-  @Input() clicked: ((item: string) => void) | undefined = undefined;
+  items = input<string[]>([]);
+  title = input<string>('');
+  clicked = input<((item: string) => void) | undefined>(undefined);
 
-  listForm: FormGroup = new FormGroup({
-    'filterQuery': new FormControl('', [])
-  });
+  needsFilter = computed(() => this.items().length >= 5);
 
-  filterList = (listItem: string) => {
-    return listItem.toLowerCase().indexOf((this.listForm.value.filterQuery || '').toLowerCase()) >= 0;
-  }
+  filterQuery = signal('');
+  protected readonly filteredItems = filteredBy(this.items, this.filterQuery);
 
   close() {
-    this.modal.close();
+    this.modal.dismiss();
   }
 
   handleClick(item: string) {
-    if (this.clicked) {
-      this.clicked(item);
+    const clickFn = this.clicked();
+    if (clickFn) {
+      clickFn(item);
     }
   }
 }

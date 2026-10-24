@@ -1,54 +1,47 @@
-import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, Input, OnInit} from '@angular/core';
-import {Breakpoint, UtilityService} from "../../../shared/_services/utility.service";
-import {
-  AbstractControl,
-  AsyncValidatorFn,
-  FormControl,
-  FormGroup,
-  ReactiveFormsModule,
-  ValidationErrors,
-  Validators
-} from "@angular/forms";
-import {Person} from "../../../_models/metadata/person";
-import {
-  NgbActiveModal,
-  NgbNav,
-  NgbNavContent,
-  NgbNavItem,
-  NgbNavLink,
-  NgbNavLinkBase,
-  NgbNavOutlet
-} from "@ng-bootstrap/ng-bootstrap";
+import {ChangeDetectionStrategy, Component, computed, inject, model, OnInit, signal} from '@angular/core';
+import {Person, PersonRole} from "../../../_models/metadata/person";
+import {NgbActiveModal} from "@ng-bootstrap/ng-bootstrap";
 import {PersonService} from "../../../_services/person.service";
-import {translate, TranslocoDirective} from '@jsverse/transloco';
+import {TranslocoDirective} from '@jsverse/transloco';
 import {CoverImageChooserComponent} from "../../../cards/cover-image-chooser/cover-image-chooser.component";
-import {forkJoin, map, of} from "rxjs";
+import {
+  CoverChooserConfigFactoryService,
+  CoverImageChooserConfig
+} from "../../../_services/cover-chooser-config-factory.service";
+import {map, Observable, of, switchMap} from "rxjs";
 import {UploadService} from "../../../_services/upload.service";
 import {SettingItemComponent} from "../../../settings/_components/setting-item/setting-item.component";
-import {AccountService} from "../../../_services/account.service";
-import {ToastrService} from "ngx-toastr";
 import {EditListComponent} from "../../../shared/edit-list/edit-list.component";
+import {modalSaved} from "../../../_models/modal/modal-result";
+import {Tabs} from "../../../_models/tabs";
+import {FormFieldDirective} from "../../../_directives/form-field.directive";
+import {form, FormField, required, ValidationResult} from "@angular/forms/signals";
+import {EditModalShellComponent} from "../../../shared/edit-modal-shell/edit-modal-shell.component";
+import {EditTabDirective} from "../../../shared/_directive/edit-tab.directive";
+import {amazonCode} from "../../../_validators/amazon-code.validator";
 
-enum TabID {
-  General = 'general-tab',
-  Aliases = 'aliases-tab',
-  CoverImage = 'cover-image-tab',
+interface FormModel {
+  name: string;
+  description: string;
+  asin: string;
+  aniListId: number | null;
+  malId: number | null;
+  hardcoverId: string;
+  aliases: string[];
+  coverImageLocked: boolean;
 }
 
 @Component({
   selector: 'app-edit-person-modal',
   imports: [
-    ReactiveFormsModule,
-    NgbNav,
-    NgbNavItem,
     TranslocoDirective,
-    NgbNavLinkBase,
-    NgbNavContent,
-    NgbNavOutlet,
     CoverImageChooserComponent,
     SettingItemComponent,
-    NgbNavLink,
-    EditListComponent
+    EditListComponent,
+    FormFieldDirective,
+    FormField,
+    EditModalShellComponent,
+    EditTabDirective
   ],
   templateUrl: './edit-person-modal.component.html',
   styleUrl: './edit-person-modal.component.scss',
@@ -56,159 +49,114 @@ enum TabID {
 })
 export class EditPersonModalComponent implements OnInit {
 
-  protected readonly utilityService = inject(UtilityService);
   private readonly modal = inject(NgbActiveModal);
-  private readonly cdRef = inject(ChangeDetectorRef);
   private readonly personService = inject(PersonService);
   private readonly uploadService = inject(UploadService);
-  protected readonly accountService = inject(AccountService);
-  protected readonly toastr = inject(ToastrService);
+  private readonly coverChooserConfigFactory = inject(CoverChooserConfigFactoryService);
 
-  protected readonly Breakpoint = Breakpoint;
-  protected readonly TabID = TabID;
+  person = model.required<Person>();
 
-  @Input({required: true}) person!: Person;
+  protected readonly activeId = signal(Tabs.General);
+  private selectedCover = '';
+  private coverImageReset = false;
+  private coverImageDirty = false;
 
-  active = TabID.General;
-  editForm: FormGroup = new FormGroup({
-    name: new FormControl('', [Validators.required]),
-    description: new FormControl('', []),
-    asin: new FormControl('', [], [this.asinValidator()]),
-    aniListId: new FormControl('', []),
-    malId: new FormControl('', []),
-    hardcoverId: new FormControl('', []),
+  private readonly formModel = signal<FormModel>({
+    name: '',
+    description: '',
+    asin: '',
+    aniListId: null,
+    malId: null,
+    hardcoverId: '',
+    aliases: [],
+    coverImageLocked: false,
   });
 
-  imageUrls: Array<string> = [];
-  selectedCover: string = '';
-  coverImageReset = false;
-  touchedCoverImage = false;
-  fetchDisabled: boolean = false;
+  protected readonly formGroup = form(this.formModel, p => {
+    required(p.name);
+    amazonCode(p.asin);
+  });
+
+  protected readonly chooserConfig = computed<CoverImageChooserConfig>(() => ({
+    ...this.coverChooserConfigFactory.forPerson(this.person()),
+    isLocked: this.formGroup.coverImageLocked().value()
+  }));
+
+  /**
+   * Suffix to include in the tooltip for external ids if they support characters
+   */
+  protected readonly tooltip = computed(() => {
+    const roles = this.person().roles ?? [];
+    return roles.length === 1 && roles.includes(PersonRole.Character) ? '-character' : '';
+  });
 
   ngOnInit() {
-    if (this.person) {
-      this.editForm.get('name')!.setValue(this.person.name);
-      this.editForm.get('description')!.setValue(this.person.description);
-      this.editForm.get('asin')!.setValue((this.person.asin || ''));
-      this.editForm.get('aniListId')!.setValue((this.person.aniListId || '')  + '') ;
-      this.editForm.get('malId')!.setValue((this.person.malId || '')  + '');
-      this.editForm.get('hardcoverId')!.setValue(this.person.hardcoverId || '');
-
-      this.editForm.addControl('coverImageIndex', new FormControl(0, []));
-      this.editForm.addControl('coverImageLocked', new FormControl(this.person.coverImageLocked, []));
-
-      this.cdRef.markForCheck();
-    } else {
-      alert('no person')
-    }
+    // Seeded once. A linkedSignal here would wipe in-progress edits whenever person() changes
+    this.formModel.set({
+      name: this.person().name,
+      description: this.person().description,
+      asin: this.person().asin || '',
+      aniListId: this.person().aniListId ?? null,
+      malId: this.person().malId ?? null,
+      hardcoverId: this.person().hardcoverId || '',
+      aliases: this.person().aliases ?? [],
+      coverImageLocked: this.person().coverImageLocked,
+    });
   }
 
-
   close() {
-    this.modal.close({success: false, coverImageUpdate: false});
+    if (this.coverImageReset) {
+      this.modal.close(modalSaved(this.person(), true));
+    } else {
+      this.modal.dismiss();
+    }
   }
 
   save() {
-    const apis = [];
+    const model = this.formModel();
 
-    const hasCoverChanges = this.touchedCoverImage || this.coverImageReset;
-
-    if (hasCoverChanges) {
-      apis.push(this.uploadService.updatePersonCoverImage(this.person.id, this.selectedCover, !this.coverImageReset));
-    }
-
-    const person: Person = {
-      id: this.person.id,
-      coverImageLocked: this.person.coverImageLocked,
-      name: this.editForm.get('name')!.value || '',
-      description: this.editForm.get('description')!.value || '',
-      asin: this.editForm.get('asin')!.value || '',
-      // @ts-ignore
-      aniListId: this.editForm.get('aniListId')!.value === '' ? null : parseInt(this.editForm.get('aniListId').value, 10),
-      // @ts-ignore
-      malId: this.editForm.get('malId')!.value === '' ? null : parseInt(this.editForm.get('malId').value, 10),
-      hardcoverId: this.editForm.get('hardcoverId')!.value || '',
-      aliases: this.person.aliases,
+    const payload: Person = {
+      ...this.person(),
+      ...model,
+      aniListId: model.aniListId ?? undefined,
+      malId: model.malId ?? undefined,
     };
-    apis.push(this.personService.updatePerson(person));
 
-    forkJoin(apis).subscribe(_ => {
-      this.modal.close({success: true, coverImageUpdate: hasCoverChanges, person: person});
+    this.personService.updatePerson(payload).pipe(
+      switchMap(person => this.coverImageDirty
+        ? this.uploadService.updatePersonCoverImage(this.person().id, this.selectedCover, true).pipe(map(() => person))
+        : of(person))
+    ).subscribe(person => {
+      this.person.set(person);
+      const needsCoverUpdate = this.coverImageDirty || this.coverImageReset;
+      this.modal.close(modalSaved(this.person(), needsCoverUpdate));
     });
   }
 
-  handleUploadByUrl(urls: Array<string>) {
-    this.selectedCover = urls[0];
-    this.touchedCoverImage = true;
-    this.cdRef.markForCheck();
+  updateAliases(aliases: string[]) {
+    this.formGroup.aliases().value.set(aliases);
   }
 
-  updateSelectedIndex(index: number) {
-    this.editForm.patchValue({
-      coverImageIndex: index
-    });
-    this.touchedCoverImage = true;
-    this.cdRef.markForCheck();
-  }
-
-  updateSelectedImage(url: string) {
-    this.selectedCover = url;
-    this.touchedCoverImage = true;
-    this.cdRef.markForCheck();
+  handleCoverChanged(event: { isDirty: boolean; fileName: string }) {
+    this.coverImageDirty = event.isDirty;
+    this.selectedCover = event.fileName;
   }
 
   handleReset() {
     this.coverImageReset = true;
-    this.editForm.patchValue({
-      coverImageLocked: false
-    });
-    this.touchedCoverImage = true;
-    this.cdRef.markForCheck();
+    this.formGroup.coverImageLocked().value.set(false);
   }
 
-  downloadCover() {
-    this.personService.downloadCover(this.person.id).subscribe(imgUrl => {
-      if (imgUrl) {
-        this.toastr.success(translate('toasts.person-image-downloaded'));
-        this.fetchDisabled = true;
-        this.imageUrls.push(imgUrl);
-        this.cdRef.markForCheck();
-      }
-    });
-  }
-
-  aliasValidator(): AsyncValidatorFn {
-    return (control: AbstractControl) => {
-      const name = control.value;
-      if (!name || name.trim().length === 0) {
-        return of(null);
-      }
-
-      return this.personService.isValidAlias(this.person.id, name).pipe(map(valid => {
-        if (valid) {
-          return null;
-        }
-
-        return { 'invalidAlias': {'alias': name} } as ValidationErrors;
-      }));
+  aliasValidator = (alias: string): Observable<ValidationResult> => {
+    if (!alias || alias.trim().length === 0) {
+      return of(null);
     }
+
+    return this.personService.isValidAlias(this.person().id, alias, this.formGroup.name().value()).pipe(
+      map(valid => valid ? null : [{kind: 'invalidAlias'}])
+    );
   }
 
-  asinValidator(): AsyncValidatorFn {
-    return (control: AbstractControl) => {
-      const asin = control.value;
-      if (!asin || asin.trim().length === 0) {
-        return of(null);
-      }
-      
-      return this.personService.isValidAsin(asin).pipe(map(valid => {
-        if (valid) {
-          return null;
-        }
-
-        return { 'invalidAsin': {'asin': asin} } as ValidationErrors;
-      }));
-    }
-  }
+  protected readonly Tabs = Tabs;
 
 }

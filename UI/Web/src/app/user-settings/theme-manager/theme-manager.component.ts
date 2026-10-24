@@ -1,15 +1,15 @@
-import {ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, inject,} from '@angular/core';
-import {ToastrService} from 'ngx-toastr';
-import {distinctUntilChanged, map, take, tap} from 'rxjs';
-import {ThemeService} from 'src/app/_services/theme.service';
-import {SiteTheme, ThemeProvider} from 'src/app/_models/preferences/site-theme';
-import {User} from 'src/app/_models/user';
-import {AccountService} from 'src/app/_services/account.service';
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  computed,
+  inject, OnInit,
+  signal,
+} from '@angular/core';
+import {ToastrService} from '@openng/ngx-toastr';
 import {SentenceCasePipe} from '../../_pipes/sentence-case.pipe';
-import {AsyncPipe, NgTemplateOutlet} from '@angular/common';
+import {NgTemplateOutlet} from '@angular/common';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
-import {shareReplay} from "rxjs/operators";
 import {CarouselReelComponent} from "../../carousel/_components/carousel-reel/carousel-reel.component";
 import {ImageComponent} from "../../shared/image/image.component";
 import {DownloadableSiteTheme} from "../../_models/theme/downloadable-site-theme";
@@ -17,11 +17,15 @@ import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
 import {ScrobbleProvider} from "../../_services/scrobbling.service";
 import {ConfirmService} from "../../shared/confirm.service";
 import {FileSystemFileEntry, NgxFileDropEntry, NgxFileDropModule} from "ngx-file-drop";
-import {ReactiveFormsModule} from "@angular/forms";
 import {LoadingComponent} from "../../shared/loading/loading.component";
-import {NgbModal} from "@ng-bootstrap/ng-bootstrap";
 import {PreviewImageModalComponent} from "../../shared/_components/carousel-modal/preview-image-modal.component";
-import {DefaultModalOptions} from "../../_models/default-modal-options";
+import {ModalService} from "../../_services/modal.service";
+import {SiteTheme, ThemeProvider} from "../../_models/preferences/site-theme";
+import {ThemeService} from "../../_services/theme.service";
+import {AccountService} from "../../_services/account.service";
+import {
+  FileDragAndDropUploadComponent
+} from "../../shared/file-drag-and-drop-upload/file-drag-and-drop-upload.component";
 
 interface ThemeContainer {
   downloadable?: DownloadableSiteTheme;
@@ -35,65 +39,39 @@ interface ThemeContainer {
     templateUrl: './theme-manager.component.html',
     styleUrls: ['./theme-manager.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [AsyncPipe, SentenceCasePipe, TranslocoDirective, CarouselReelComponent,
-        ImageComponent, DefaultValuePipe, NgTemplateOutlet, NgxFileDropModule,
-        ReactiveFormsModule, LoadingComponent]
+  imports: [SentenceCasePipe, TranslocoDirective, CarouselReelComponent,
+    ImageComponent, DefaultValuePipe, NgTemplateOutlet, NgxFileDropModule,
+    LoadingComponent, FileDragAndDropUploadComponent]
 })
-export class ThemeManagerComponent {
-  private readonly destroyRef = inject(DestroyRef);
+export class ThemeManagerComponent implements OnInit {
   protected readonly themeService = inject(ThemeService);
-  private readonly accountService = inject(AccountService);
+  protected readonly accountService = inject(AccountService);
   private readonly toastr = inject(ToastrService);
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly confirmService = inject(ConfirmService);
-  private readonly modalService = inject(NgbModal);
+  private readonly modalService = inject(ModalService);
 
   protected readonly ThemeProvider = ThemeProvider;
   protected readonly ScrobbleProvider = ScrobbleProvider;
 
-  currentTheme: SiteTheme | undefined;
-  user: User | undefined;
-  selectedTheme: ThemeContainer | undefined;
-  downloadableThemes: Array<DownloadableSiteTheme> = [];
-  downloadedThemes: Array<SiteTheme> = [];
-  hasAdmin$ = this.accountService.currentUser$.pipe(
-    takeUntilDestroyed(this.destroyRef),
-    map(c => c && this.accountService.hasAdminRole(c)),
-    shareReplay({refCount: true, bufferSize: 1}),
-  );
+  currentTheme = this.themeService.currentTheme;
+  downloadedThemes = this.themeService.themes;
 
-  canUseThemes$ = this.accountService.currentUser$.pipe(
-    takeUntilDestroyed(this.destroyRef),
-    map(c => c && !this.accountService.hasReadOnlyRole(c)),
-    shareReplay({refCount: true, bufferSize: 1}),
-  );
+  selectedTheme = signal<ThemeContainer | null>(null);
+  downloadableThemes = signal<DownloadableSiteTheme[]>([]);
 
-  files: NgxFileDropEntry[] = [];
+  canUseThemes = computed(() => !this.accountService.hasReadOnlyRole());
+
   acceptableExtensions = ['.css'].join(',');
-  isUploadingTheme: boolean = false;
+  isUploadingTheme = signal(false);
 
-
-
-  constructor() {
-
-    this.themeService.themes$.pipe(tap(themes => {
-      this.downloadedThemes = themes;
-      this.cdRef.markForCheck();
-    })).subscribe();
-
+  ngOnInit() {
     this.loadDownloadableThemes();
-
-    this.themeService.currentTheme$.pipe(takeUntilDestroyed(this.destroyRef), distinctUntilChanged()).subscribe(theme => {
-      this.currentTheme = theme;
-      this.cdRef.markForCheck();
-    });
-
   }
 
   loadDownloadableThemes() {
     this.themeService.getDownloadableThemes().subscribe(d => {
-      this.downloadableThemes = d;
-      this.cdRef.markForCheck();
+      this.downloadableThemes.set(d);
     });
   }
 
@@ -109,86 +87,80 @@ export class ThemeManagerComponent {
   }
 
   removeDownloadedTheme(theme: SiteTheme) {
-    this.selectedTheme = undefined;
-    this.downloadableThemes = this.downloadableThemes.filter(d => d.name !== theme.name);
-    this.cdRef.markForCheck();
+    this.selectedTheme.set(null);
+    this.downloadableThemes.update(x => [...x.filter(d => d.name !== theme.name)]);
   }
 
   applyTheme(theme: SiteTheme) {
-    this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
-      if (!user) return;
-      const pref = Object.assign({}, user.preferences);
-      pref.theme = theme;
-      this.accountService.updatePreferences(pref).subscribe();
-      // Updating theme emits the new theme to load on the themes$
-    });
+    const user = this.accountService.currentUser();
+    if (!user) return;
+
+    // Updating theme emits the new theme to load on the themes$
+    const pref = Object.assign({}, user.preferences);
+    pref.theme = theme;
+    this.accountService.updatePreferences(pref).subscribe();
   }
 
   updateDefault(theme: SiteTheme) {
     this.themeService.setDefault(theme.id).subscribe(() => {
+      // TODO: Refactor this key to be in toasts
       this.toastr.success(translate('theme-manager.updated-toastr', {name: theme.name}));
     });
   }
 
   selectTheme(theme: SiteTheme | DownloadableSiteTheme | undefined) {
     if (theme === undefined) {
-      this.selectedTheme = undefined;
+      this.selectedTheme.set(null);
       return;
     }
 
-    if (theme.hasOwnProperty('provider')) {
-      this.selectedTheme = {
+    if (Object.hasOwnProperty.call(theme, 'provider')) {
+      this.selectedTheme.set({
         isSiteTheme: true,
         site: theme as SiteTheme,
         name: theme.name
-      };
+      });
     } else {
-      this.selectedTheme = {
+      this.selectedTheme.set({
         isSiteTheme: false,
         downloadable: theme as DownloadableSiteTheme,
         name: theme.name
-      };
+      });
     }
-
-    this.cdRef.markForCheck();
   }
 
   downloadTheme(theme: DownloadableSiteTheme) {
     this.themeService.downloadTheme(theme).subscribe(downloadedTheme => {
       this.removeDownloadedTheme(downloadedTheme);
-      this.themeService.getThemes().subscribe(themes => {
-        this.downloadedThemes = themes;
-        const oldTheme = this.downloadedThemes.filter(d => d.name === theme.name)[0];
+      this.themeService.getThemes().subscribe(_ => {
+        const oldTheme = this.downloadedThemes()?.filter(d => d.name === theme.name)[0];
         this.selectTheme(oldTheme);
-        this.cdRef.markForCheck();
       });
 
     });
   }
 
   public dropped(files: NgxFileDropEntry[]) {
-    this.files = files;
+    this.isUploadingTheme.set(true);
+
     for (const droppedFile of files) {
-      // Is it a file?
-      if (droppedFile.fileEntry.isFile) {
-        const fileEntry = droppedFile.fileEntry as FileSystemFileEntry;
-        fileEntry.file((file: File) => {
-          this.themeService.uploadTheme(file, droppedFile).subscribe(t => {
-            this.isUploadingTheme = false;
-            this.cdRef.markForCheck();
-          });
+      if (!droppedFile.fileEntry.isFile) continue;
+      const fileEntry = droppedFile.fileEntry as FileSystemFileEntry;
+
+      fileEntry.file((file: File) => {
+        this.themeService.uploadTheme(file, droppedFile).subscribe(t => {
+          this.isUploadingTheme.set(false);
+          this.selectTheme(t);
         });
-      }
+      });
     }
-    this.isUploadingTheme = true;
-    this.cdRef.markForCheck();
   }
 
   previewImage(imgUrl: string) {
     if (imgUrl === '') return;
 
-    const ref = this.modalService.open(PreviewImageModalComponent, DefaultModalOptions);
-    ref.componentInstance.title = this.selectedTheme!.name;
-    ref.componentInstance.image = imgUrl;
+    const ref = this.modalService.open(PreviewImageModalComponent);
+    ref.setInput('title', this.selectedTheme!.name);
+    ref.setInput('image', imgUrl);
   }
 }

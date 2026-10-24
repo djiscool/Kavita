@@ -1,7 +1,6 @@
 import {IHasCover} from "../common/i-has-cover";
 
 export enum PersonRole {
-  Other = 1,
   Writer = 3,
   Penciller = 4,
   Inker = 5,
@@ -30,6 +29,14 @@ export interface Person extends IHasCover {
   asin?: string;
   primaryColor: string;
   secondaryColor: string;
+  /**
+   * Only present when retrieving from person info endpoint
+   */
+  webLinks?: string[];
+  /**
+   * Only present when retrieving from person info endpoint
+   */
+  roles?: PersonRole[];
 }
 
 /**

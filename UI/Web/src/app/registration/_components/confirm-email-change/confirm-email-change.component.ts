@@ -1,14 +1,14 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
-import { ToastrService } from 'ngx-toastr';
-import { AccountService } from 'src/app/_services/account.service';
-import { NavService } from 'src/app/_services/nav.service';
-import { ThemeService } from 'src/app/_services/theme.service';
-import { SplashContainerComponent } from '../splash-container/splash-container.component';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, OnInit} from '@angular/core';
+import {ActivatedRoute, Router} from '@angular/router';
+import {ToastrService} from '@openng/ngx-toastr';
+import {SplashContainerComponent} from '../splash-container/splash-container.component';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
+import {AccountService} from "../../../_services/account.service";
+import {ThemeService} from "../../../_services/theme.service";
+import {NavService} from "../../../_services/nav.service";
 
 /**
- * This component just validates the email via API then redirects to login
+ * This component just validates the email via API then redirects to log in
  */
 @Component({
     selector: 'app-confirm-email-change',
@@ -18,15 +18,21 @@ import {translate, TranslocoDirective} from "@jsverse/transloco";
     imports: [SplashContainerComponent, TranslocoDirective]
 })
 export class ConfirmEmailChangeComponent implements OnInit {
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private accountService = inject(AccountService);
+  private toastr = inject(ToastrService);
+  private themeService = inject(ThemeService);
+  private navService = inject(NavService);
+  private readonly cdRef = inject(ChangeDetectorRef);
+
 
   email: string = '';
   token: string = '';
 
   confirmed: boolean = false;
 
-  constructor(private route: ActivatedRoute, private router: Router, private accountService: AccountService,
-    private toastr: ToastrService, private themeService: ThemeService, private navService: NavService,
-    private readonly cdRef: ChangeDetectorRef) {
+  constructor() {
       this.navService.hideSideNav();
       this.themeService.setTheme(this.themeService.defaultTheme);
       const token = this.route.snapshot.queryParamMap.get('token');

@@ -1,18 +1,18 @@
-import { HttpClient } from '@angular/common/http';
-import { Injectable } from '@angular/core';
-import { of } from 'rxjs';
-import { environment } from 'src/environments/environment';
-import { SearchResultGroup } from '../_models/search/search-result-group';
-import { Series } from '../_models/series';
+import {HttpClient} from '@angular/common/http';
+import {inject, Injectable} from '@angular/core';
+import {of} from 'rxjs';
+import {environment} from '../../environments/environment';
+import {SearchResultGroup} from '../_models/search/search-result-group';
+import {Series} from '../_models/series';
+import {Chapter} from '../_models/chapter';
 
 @Injectable({
   providedIn: 'root'
 })
 export class SearchService {
+  private httpClient = inject(HttpClient);
 
   baseUrl = environment.apiUrl;
-
-  constructor(private httpClient: HttpClient) { }
 
   search(term: string, includeChapterAndFiles: boolean = false) {
     if (term === '') {
@@ -27,5 +27,9 @@ export class SearchService {
 
   getSeriesForChapter(chapterId: number) {
     return this.httpClient.get<Series | null>(this.baseUrl + 'search/series-for-chapter?chapterId=' + chapterId);
+  }
+
+  getChaptersBySeries(seriesId: number) {
+    return this.httpClient.get<Chapter[]>(this.baseUrl + 'search/chapters-by-series?seriesId=' + seriesId);
   }
 }

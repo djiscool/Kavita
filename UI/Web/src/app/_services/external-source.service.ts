@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import {environment} from "../../environments/environment";
 import { HttpClient } from "@angular/common/http";
 import {ExternalSource} from "../_models/sidenav/external-source";
@@ -9,9 +9,10 @@ import {map} from "rxjs/operators";
   providedIn: 'root'
 })
 export class ExternalSourceService {
+  private httpClient = inject(HttpClient);
+
 
   baseUrl = environment.apiUrl;
-  constructor(private httpClient: HttpClient) { }
 
   getExternalSources() {
     return this.httpClient.get<Array<ExternalSource>>(this.baseUrl + 'stream/external-sources');
@@ -30,7 +31,9 @@ export class ExternalSourceService {
   }
 
   sourceExists(name: string, host: string, apiKey: string) {
-    return this.httpClient.get<string>(this.baseUrl + `stream/external-source-exists?host=${encodeURIComponent(host)}&name=${name}&apiKey=${apiKey}`, TextResonse)
+    const dto = {id: 0, name, host, apiKey};
+
+    return this.httpClient.post<string>(this.baseUrl + `stream/external-source-exists`, dto, TextResonse)
       .pipe(map(s => s == 'true'));
   }
 }

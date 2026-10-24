@@ -5,7 +5,9 @@ import {
   effect,
   EventEmitter,
   inject,
-  model
+  input,
+  model,
+  signal
 } from '@angular/core';
 import {TranslocoDirective} from "@jsverse/transloco";
 import {NgbActiveOffcanvas} from "@ng-bootstrap/ng-bootstrap";
@@ -30,7 +32,7 @@ export class ViewTocDrawerComponent {
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly bookService = inject(BookService);
 
-  chapterId = model<number>();
+  chapterId = model.required<number>();
   /**
    * Current Page
    */
@@ -39,7 +41,8 @@ export class ViewTocDrawerComponent {
   /**
    * The actual pages from the epub, used for showing on table of contents. This must be here as we need access to it for scroll anchors
    */
-  chapters = model<Array<BookChapterItem>>([]);
+  chapters = signal<Array<BookChapterItem>>([]);
+  loading = signal(true);
 
 
   loadPage: EventEmitter<LoadPageEvent | null> = new EventEmitter<LoadPageEvent | null>();
@@ -54,6 +57,7 @@ export class ViewTocDrawerComponent {
       }
 
       this.bookService.getBookChapters(id).subscribe(bookChapters => {
+        this.loading.set(false);
         this.chapters.set(bookChapters);
         this.cdRef.markForCheck();
       });

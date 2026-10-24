@@ -1,6 +1,15 @@
 import {DOCUMENT} from '@angular/common';
-import {DestroyRef, inject, Inject, Injectable, Renderer2, RendererFactory2, RendererStyleFlags2} from '@angular/core';
-import {filter, ReplaySubject, take} from 'rxjs';
+import {
+  DestroyRef,
+  effect,
+  inject,
+  Injectable,
+  Renderer2,
+  RendererFactory2,
+  RendererStyleFlags2,
+  signal
+} from '@angular/core';
+import {filter} from 'rxjs';
 import {HttpClient} from "@angular/common/http";
 import {environment} from "../../environments/environment";
 import {SideNavStream} from "../_models/sidenav/sidenav-stream";
@@ -8,11 +17,9 @@ import {TextResonse} from "../_types/text-response";
 import {AccountService} from "./account.service";
 import {map} from "rxjs/operators";
 import {NavigationEnd, Router} from "@angular/router";
-import {takeUntilDestroyed, toSignal} from "@angular/core/rxjs-interop";
-import {SettingsTabId} from "../sidenav/preference-nav/preference-nav.component";
+import {takeUntilDestroyed, toObservable} from "@angular/core/rxjs-interop";
 import {WikiLink} from "../_models/wiki";
-import {AuthGuard} from "../_guards/auth.guard";
-import {SettingsService} from "../admin/settings.service";
+import {AUTH_URL_KEY} from "../_guards/auth.guard";
 
 /**
  * NavItem used to construct the dropdown or NavLinkModal on mobile
@@ -34,14 +41,18 @@ interface NavItem {
   providedIn: 'root'
 })
 export class NavService {
-
+  private readonly document = inject<Document>(DOCUMENT);
+  private readonly httpClient = inject(HttpClient);
   private readonly accountService = inject(AccountService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
-  public localStorageSideNavKey = 'kavita--sidenav--expanded';
+  private readonly renderer: Renderer2;
+  private readonly baseUrl = environment.apiUrl;
+  public readonly localStorageSideNavKey = 'kavita--sidenav--expanded';
 
-  public navItems: NavItem[] = [
+  // TODO:This is globally accessed, refactor so it doesn't show as unused
+  public readonly navItems: NavItem[] = [
     {
       transLocoKey: 'all-filters',
       routerLink: '/all-filters/',
@@ -53,6 +64,10 @@ export class NavService {
     {
       transLocoKey: 'browse-tags',
       routerLink: '/browse/tags',
+    },
+    {
+      transLocoKey: 'all-annotations',
+      routerLink: '/browse/annotations'
     },
     {
       transLocoKey: 'announcements',
@@ -68,25 +83,28 @@ export class NavService {
     }
   ]
 
-  private navbarVisibleSource = new ReplaySubject<boolean>(1);
+  private navBarVisible = signal(false);
   /**
    * If the top Nav bar is rendered or not
    */
-  navbarVisible$ = this.navbarVisibleSource.asObservable();
+  navbarVisibleSignal = this.navBarVisible.asReadonly();
 
-  private sideNavCollapseSource = new ReplaySubject<boolean>(1);
+
+  private sideNavCollapsed = signal(false);
   /**
    * If the Side Nav is in a collapsed state or not.
    */
-  sideNavCollapsed$ = this.sideNavCollapseSource.asObservable();
-  sideNavCollapsedSignal = toSignal(this.sideNavCollapsed$, {initialValue: false});
+  sideNavCollapsedSignal = this.sideNavCollapsed.asReadonly();
 
-  private sideNavVisibilitySource = new ReplaySubject<boolean>(1);
+  private sideNavVisibility = signal(false);
   /**
    * If the side nav is rendered or not into the DOM.
    */
-  sideNavVisibility$ = this.sideNavVisibilitySource.asObservable();
-  sideNavVisibilitySignal = toSignal(this.sideNavVisibility$, {initialValue: false})
+  sideNavVisibilitySignal = this.sideNavVisibility.asReadonly();
+  /**
+   * If the side nav is rendered or not into the DOM.
+   */
+  sideNavVisibility$ = toObservable(this.sideNavVisibility);
 
   usePreferenceSideNav$ = this.router.events.pipe(
     filter(event => event instanceof NavigationEnd),
@@ -100,21 +118,22 @@ export class NavService {
     takeUntilDestroyed(this.destroyRef),
   );
 
-  private renderer: Renderer2;
-  baseUrl = environment.apiUrl;
 
-  constructor(@Inject(DOCUMENT) private document: Document, rendererFactory: RendererFactory2, private httpClient: HttpClient) {
+
+  constructor() {
+    const rendererFactory = inject(RendererFactory2);
     this.renderer = rendererFactory.createRenderer(null, null);
 
+
     // To avoid flashing, let's check if we are authenticated before we show
-    this.accountService.currentUser$.pipe(take(1)).subscribe(u => {
-      if (u) {
+    effect(() => {
+      if (this.accountService.isLoggedIn()) {
         this.showNavBar();
       }
-    });
+    })
 
     const sideNavState = (localStorage.getItem(this.localStorageSideNavKey) === 'true') || false;
-    this.sideNavCollapseSource.next(sideNavState);
+    this.sideNavCollapsed.set(sideNavState);
     this.showSideNav();
   }
 
@@ -122,8 +141,8 @@ export class NavService {
     return this.httpClient.get<Array<SideNavStream>>(this.baseUrl + 'stream/sidenav?visibleOnly=' + visibleOnly);
   }
 
-  updateSideNavStreamPosition(streamName: string, sideNavStreamId: number, fromPosition: number, toPosition: number) {
-    return this.httpClient.post(this.baseUrl + 'stream/update-sidenav-position', {streamName, id: sideNavStreamId, fromPosition, toPosition}, TextResonse);
+  updateSideNavStreamPosition(streamName: string, sideNavStreamId: number, fromPosition: number, toPosition: number, positionIncludesInvisible: boolean = true) {
+    return this.httpClient.post(this.baseUrl + 'stream/update-sidenav-position', {streamName, id: sideNavStreamId, fromPosition, toPosition, positionIncludesInvisible}, TextResonse);
   }
 
   updateSideNavStream(stream: SideNavStream) {
@@ -157,7 +176,7 @@ export class NavService {
       this.renderer.setStyle(bodyElem, 'height', 'calc(var(--vh)*100 - var(--nav-offset))');
       this.renderer.setStyle(bodyElem, 'overflow', 'hidden');
       this.renderer.setStyle(this.document.querySelector('html'), 'height', 'calc(var(--vh)*100 - var(--nav-offset))');
-      this.navbarVisibleSource.next(true);
+      this.navBarVisible.set(true);
     }, 10);
   }
 
@@ -172,7 +191,7 @@ export class NavService {
       this.renderer.setStyle(bodyElem, 'scrollbar-gutter', 'initial', RendererStyleFlags2.Important);
       this.renderer.removeStyle(this.document.querySelector('html'), 'height');
       this.renderer.setStyle(bodyElem, 'overflow', 'auto');
-      this.navbarVisibleSource.next(false);
+      this.navBarVisible.set(false);
     }, 10);
   }
 
@@ -187,12 +206,12 @@ export class NavService {
     this.showSideNav();
 
     // Check if user came here from another url, else send to library route
-    const pageResume = localStorage.getItem(AuthGuard.urlKey);
+    const pageResume = localStorage.getItem(AUTH_URL_KEY);
     if (pageResume && pageResume !== '/login') {
-      localStorage.setItem(AuthGuard.urlKey, '');
+      localStorage.setItem(AUTH_URL_KEY, '');
       this.router.navigateByUrl(pageResume);
     } else {
-      localStorage.setItem(AuthGuard.urlKey, '');
+      localStorage.setItem(AUTH_URL_KEY, '');
       this.router.navigateByUrl('/home');
     }
   }
@@ -201,27 +220,24 @@ export class NavService {
    * Shows the side nav. When being visible, the side nav will automatically return to previous collapsed state.
    */
   showSideNav() {
-    this.sideNavVisibilitySource.next(true);
+    this.sideNavVisibility.set(true);
   }
 
   /**
    * Hides the side nav. This is useful for the readers and login page.
    */
   hideSideNav() {
-    this.sideNavVisibilitySource.next(false);
+    this.sideNavVisibility.set(false);
   }
 
   toggleSideNav() {
-    this.sideNavCollapseSource.pipe(take(1)).subscribe(val => {
-      if (val === undefined) val = false;
-      const newVal = !(val || false);
-      this.sideNavCollapseSource.next(newVal);
-      localStorage.setItem(this.localStorageSideNavKey, newVal + '');
-    });
+    const newValue = !this.sideNavCollapsed();
+    this.sideNavCollapsed.set(newValue);
+    localStorage.setItem(this.localStorageSideNavKey, newValue + '');
   }
 
   collapseSideNav(isCollapsed: boolean) {
-    this.sideNavCollapseSource.next(isCollapsed);
+    this.sideNavCollapsed.set(isCollapsed);
     localStorage.setItem(this.localStorageSideNavKey, isCollapsed + '');
   }
 }

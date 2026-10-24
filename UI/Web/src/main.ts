@@ -1,13 +1,18 @@
-import {ApplicationConfig, importProvidersFrom, inject, provideAppInitializer,} from '@angular/core';
-import {AppComponent} from './app/app.component';
-import {NgCircleProgressModule} from 'ng-circle-progress';
-import {ToastrModule} from 'ngx-toastr';
-import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
-import {AppRoutingModule} from './app/app-routing.module';
+import {
+  ApplicationConfig,
+  importProvidersFrom,
+  inject,
+  isDevMode,
+  provideAppInitializer,
+  provideBrowserGlobalErrorListeners,
+  provideCheckNoChangesConfig,
+  provideZonelessChangeDetection,
+} from '@angular/core';
+import {routes} from './app/app-routing.module';
 import {bootstrapApplication, BrowserModule, Title} from '@angular/platform-browser';
-import {JwtInterceptor} from './app/_interceptors/jwt.interceptor';
-import {ErrorInterceptor} from './app/_interceptors/error.interceptor';
-import {HTTP_INTERCEPTORS, provideHttpClient, withFetch, withInterceptorsFromDi} from '@angular/common/http';
+import {jwtInterceptor} from './app/_interceptors/jwt.interceptor';
+import {errorInterceptor} from './app/_interceptors/error.interceptor';
+import {provideHttpClient, withInterceptors} from '@angular/common/http';
 import {provideTransloco, TranslocoConfig, TranslocoService} from "@jsverse/transloco";
 import {environment} from "./environments/environment";
 import {AccountService} from "./app/_services/account.service";
@@ -16,14 +21,34 @@ import {provideTranslocoLocale} from "@jsverse/transloco-locale";
 import {LazyLoadImageModule} from "ng-lazyload-image";
 import {getSaver, SAVER} from "./app/_providers/saver.provider";
 import {APP_BASE_HREF, PlatformLocation} from "@angular/common";
-import {provideTranslocoPersistTranslations} from '@jsverse/transloco-persist-translations';
 import {HttpLoader} from "./httpLoader";
-import {register as registerSwiperElements} from 'swiper/element/bundle';
-import {ColorPickerModule} from "@iplab/ngx-color-picker";
+import {clientInfoInterceptor} from "./app/_interceptors/client-info.interceptor";
+import {
+  PreloadAllModules,
+  provideRouter,
+  TitleStrategy,
+  withComponentInputBinding,
+  withInMemoryScrolling,
+  withNavigationErrorHandler,
+  withPreloading
+} from "@angular/router";
+import {KavitaTitleStrategy} from "./app/_services/kavita-title.strategy";
+import {routingErrorHandler} from "./app/_interceptors/routing-error.handler";
+import {NgbModalConfig, NgbRatingConfig} from "@ng-bootstrap/ng-bootstrap";
+import {DefaultModalOptions} from "./app/_models/modal/modal-options";
+import {ActivityStoreService} from './app/_services/activity-store.service';
+import {MessageHubService} from "./app/_services/message-hub.service";
+import {DownloadService} from "./app/shared/_services/download.service";
+import {LibraryService} from "./app/_services/library.service";
+import {manualMigrationRemovePersistedTranslations} from "./app/_migrations/v0.9.2/manual-migration-remove-persisted-translations";
+import {ToastrModule} from "@openng/ngx-toastr";
+import {AppComponent} from "./app/app.component";
 
 const disableAnimations = !('animate' in document.documentElement);
+if (disableAnimations) {
+  document.documentElement.classList.add('no-animations', 'animate-disabled');
+}
 
-registerSwiperElements();
 
 function transformLanguageCodes(arr: Array<string>) {
     const transformedArray: Array<string> = [];
@@ -71,6 +96,7 @@ const languageCodes = [
 ];
 
 const translocoOptions = {
+  loader: HttpLoader,
   config: {
     reRenderOnLangChange: true,
     availableLangs: transformLanguageCodes(languageCodes),
@@ -92,7 +118,7 @@ function getBaseHref(platformLocation: PlatformLocation): string {
 
 
 function loadUserLocale(transloco: TranslocoService, accountService: AccountService) {
-  const user = accountService.currentUserSignal();
+  const user = accountService.currentUser();
   const locale = user?.preferences?.locale || localStorage.getItem(AccountService.localeKey) || 'en';
 
   transloco.setActiveLang(locale);
@@ -104,25 +130,48 @@ function loadUserLocale(transloco: TranslocoService, accountService: AccountServ
  */
 function bootstrapUser() {
   const accountService = inject(AccountService);
+  const messageHubService = inject(MessageHubService);
+  const downloadService = inject(DownloadService);
+  const libraryService = inject(LibraryService);
   const transloco = inject(TranslocoService);
+  // Created before the hub connects so no message is missed
+  inject(ActivityStoreService);
+
+  // Migration: pre v0.9.2 localization cache hashing wasn't working
+  manualMigrationRemovePersistedTranslations();
+
+  // Load user from localStorage so refreshAccount() and locale loading can proceed
+  const localUser = accountService.getUserFromLocalStorage();
+  if (localUser) {
+    accountService.setCurrentUser(localUser, false);
+  }
 
   return firstValueFrom(accountService.isOidcAuthenticated().pipe(
-    switchMap((isOidc)=> isOidc ? accountService.getAccount() : of(null)),
-    catchError(() => of(null)),
-    tap(user => {
-      if (!user) {
-        accountService.setCurrentUser(accountService.getUserFromLocalStorage());
+    switchMap(isOidc => {
+      if (isOidc) {
+        return accountService.getAccount();
       }
+      return accountService.refreshAccount();
     }),
+    catchError(() => of(null)),
     switchMap(() => loadUserLocale(transloco, accountService)),
+    switchMap(() => {
+      const user = accountService.currentUser();
+      if (user) {
+        messageHubService.createHubConnection(user);
+        return libraryService.cacheLibraryInfo().pipe(
+          tap(() => downloadService.restoreQueue())
+        );
+      }
+      return of(null);
+    }),
   ));
 }
+
 
 bootstrapApplication(AppComponent, {
     providers: [
         importProvidersFrom(BrowserModule,
-          AppRoutingModule,
-          BrowserAnimationsModule.withConfig({ disableAnimations }),
           LazyLoadImageModule,
           ToastrModule.forRoot({
             positionClass: 'toast-bottom-right',
@@ -130,30 +179,42 @@ bootstrapApplication(AppComponent, {
             timeOut: 6000,
             countDuplicates: true,
             autoDismiss: true
-          }),
-          NgCircleProgressModule.forRoot(),
-          ColorPickerModule,
+          })
         ),
+        provideRouter(routes,
+          withComponentInputBinding(),
+          withPreloading(PreloadAllModules),
+          withInMemoryScrolling({scrollPositionRestoration: 'enabled'}),
+          withNavigationErrorHandler(routingErrorHandler),
+          ),
         provideTransloco(translocoOptions),
         provideTranslocoLocale({
           defaultLocale: 'en'
         }),
-        provideTranslocoPersistTranslations({
-          loader: HttpLoader,
-          storage: { useValue: localStorage },
-          ttl: environment.production ? 129600 : 0 // 1.5 days in seconds for prod
-        }),
-        { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
-        { provide: HTTP_INTERCEPTORS, useClass: JwtInterceptor, multi: true },
         Title,
+        { provide: TitleStrategy, useClass: KavitaTitleStrategy },
         { provide: SAVER, useFactory: getSaver },
         {
           provide: APP_BASE_HREF,
           useFactory: getBaseHref,
           deps: [PlatformLocation]
         },
-        provideHttpClient(withInterceptorsFromDi(), withFetch()),
+        provideHttpClient(withInterceptors([jwtInterceptor, errorInterceptor, clientInfoInterceptor])),
         provideAppInitializer(() => bootstrapUser()),
+        provideZonelessChangeDetection(),
+        provideBrowserGlobalErrorListeners(),
+        {
+          provide: NgbModalConfig,
+          useFactory: () => Object.assign(new NgbModalConfig(), DefaultModalOptions) satisfies Partial<NgbModalConfig>
+        },
+        {
+          provide: NgbRatingConfig,
+          useFactory: () => Object.assign(new NgbRatingConfig(), {
+            max: 5,
+            resettable: true,
+          } satisfies Partial<NgbRatingConfig>)
+        },
+      ...(isDevMode() ? [provideCheckNoChangesConfig({exhaustive: true, interval: 3000})] : [])
     ]
 } as ApplicationConfig)
 .catch(err => console.error(err));

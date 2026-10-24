@@ -1,92 +1,88 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, OnInit, Output } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { AgeRestriction } from 'src/app/_models/metadata/age-restriction';
-import { Member } from 'src/app/_models/auth/member';
-import { AgeRating } from 'src/app/_models/metadata/age-rating';
-import { AgeRatingDto } from 'src/app/_models/metadata/age-rating-dto';
-import { User } from 'src/app/_models/user';
-import { MetadataService } from 'src/app/_services/metadata.service';
-import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap';
-import {TitleCasePipe, NgTemplateOutlet} from '@angular/common';
+import {ChangeDetectionStrategy, Component, effect, inject, input, output, signal} from '@angular/core';
+import {NgbTooltip} from '@ng-bootstrap/ng-bootstrap';
+import {NgTemplateOutlet, TitleCasePipe} from '@angular/common';
 import {TranslocoModule} from "@jsverse/transloco";
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {MetadataService} from "../../_services/metadata.service";
+import {Member} from "../../_models/auth/member";
+import {AgeRestriction} from "../../_models/metadata/age-restriction";
+import {AgeRatingDto} from "../../_models/metadata/age-rating-dto";
+import {AgeRating} from "../../_models/metadata/age-rating";
+import {User} from "../../_models/user/user";
+import {disabled, form, FormField} from "@angular/forms/signals";
+
+interface FormModel {
+  ageRating: string;
+  ageRestrictionIncludeUnknowns: boolean;
+}
 
 @Component({
-    selector: 'app-restriction-selector',
-    templateUrl: './restriction-selector.component.html',
-    styleUrls: ['./restriction-selector.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [ReactiveFormsModule, NgbTooltip, TitleCasePipe, TranslocoModule, NgTemplateOutlet]
+  selector: 'app-restriction-selector',
+  templateUrl: './restriction-selector.component.html',
+  styleUrls: ['./restriction-selector.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NgbTooltip, TitleCasePipe, TranslocoModule, NgTemplateOutlet, FormField]
 })
-export class RestrictionSelectorComponent implements OnInit, OnChanges {
+export class RestrictionSelectorComponent {
+  private readonly metadataService = inject(MetadataService);
 
-  @Input() member: Member | undefined | User;
-  @Input() isAdmin: boolean = false;
-  /**
-   * Show labels and description around the form
-   */
-  @Input() showContext: boolean = true;
-  @Input() reset: EventEmitter<AgeRestriction> | undefined;
-  @Output() selected: EventEmitter<AgeRestriction> = new EventEmitter<AgeRestriction>();
+  // Inputs/Outputs
+  member = input<Member | User | undefined>();
+  isAdmin = input(false);
+  showContext = input(true);
+  resetValue = input<AgeRestriction | undefined>();
+  selected = output<AgeRestriction>();
 
-
-  ageRatings: Array<AgeRatingDto> = [];
-  restrictionForm: FormGroup | undefined;
-
-  constructor(private metadataService: MetadataService, private readonly cdRef: ChangeDetectorRef) { }
-
-  ngOnInit(): void {
-
-    this.restrictionForm = new FormGroup({
-      'ageRating': new FormControl(this.member?.ageRestriction.ageRating || AgeRating.NotApplicable || AgeRating.NotApplicable, []),
-      'ageRestrictionIncludeUnknowns': new FormControl(this.member?.ageRestriction.includeUnknowns || false, []),
-
+  // State
+  ageRatings = signal<AgeRatingDto[]>([]);
+  private readonly formModel = signal<FormModel>({
+    ageRating: AgeRating.NotApplicable.toString(),
+    ageRestrictionIncludeUnknowns: true
+  });
+  restrictionForm = form(this.formModel, p => {
+    disabled(p.ageRating, {
+      when: () => this.isAdmin(),
+    });
+    disabled(p.ageRestrictionIncludeUnknowns, {
+      when: () => this.isAdmin()
     });
 
-    if (this.isAdmin) {
-      this.restrictionForm.get('ageRating')?.disable();
-      this.restrictionForm.get('ageRestrictionIncludeUnknowns')?.disable();
-    }
+    disabled(p.ageRestrictionIncludeUnknowns, {
+      when: ({valueOf}) => parseInt(valueOf(p.ageRating), 10) as AgeRating === AgeRating.NotApplicable
+    });
+  });
 
-    if (this.reset) {
-      this.reset.subscribe(e => {
-        this.restrictionForm?.get('ageRating')?.setValue(e.ageRating);
-        this.restrictionForm?.get('ageRestrictionIncludeUnknowns')?.setValue(e.includeUnknowns);
-        this.cdRef.markForCheck();
-      });
-    }
+  constructor() {
 
-    this.restrictionForm.get('ageRating')?.valueChanges.subscribe(e => {
+    effect(() => {
+      const m = this.member();
+      if (!m) return;
+
+      this.restrictionForm.ageRating().value.set((m.ageRestriction.ageRating || AgeRating.NotApplicable).toString());
+      this.restrictionForm.ageRestrictionIncludeUnknowns().value.set(m.ageRestriction.includeUnknowns);
+    });
+
+    effect(() => {
+      const r = this.resetValue();
+      if (r == null) return;
+
+      this.restrictionForm.ageRating().value.set(r.ageRating.toString());
+      this.restrictionForm.ageRestrictionIncludeUnknowns().value.set(r.includeUnknowns);
+    });
+
+
+    // Load age ratings
+    this.metadataService.getAllAgeRatings()
+      .pipe(takeUntilDestroyed())
+      .subscribe(ratings => this.ageRatings.set(ratings));
+
+    effect(() => {
+      const formModel = this.formModel();
+
       this.selected.emit({
-        ageRating: parseInt(e, 10),
-        includeUnknowns: this.restrictionForm?.get('ageRestrictionIncludeUnknowns')?.value
-      });
-      if (parseInt(e, 10) === AgeRating.NotApplicable) {
-        this.restrictionForm!.get('ageRestrictionIncludeUnknowns')?.disable();
-      } else {
-        this.restrictionForm!.get('ageRestrictionIncludeUnknowns')?.enable();
-      }
-    });
-
-    this.restrictionForm.get('ageRestrictionIncludeUnknowns')?.valueChanges.subscribe(e => {
-      this.selected.emit({
-        ageRating: parseInt(this.restrictionForm?.get('ageRating')?.value, 10),
-        includeUnknowns: e
+        ageRating: parseInt(formModel.ageRating, 10) as AgeRating,
+        includeUnknowns: formModel.ageRestrictionIncludeUnknowns
       });
     });
-
-    this.metadataService.getAllAgeRatings().subscribe(ratings => {
-      this.ageRatings = ratings;
-      this.cdRef.markForCheck();
-    });
-
-
   }
-
-  ngOnChanges() {
-    if (!this.member) return;
-    this.restrictionForm?.get('ageRating')?.setValue(this.member?.ageRestriction.ageRating || AgeRating.NotApplicable);
-    this.restrictionForm?.get('ageRestrictionIncludeUnknowns')?.setValue(this.member?.ageRestriction.includeUnknowns);
-    this.cdRef.markForCheck();
-  }
-
 }

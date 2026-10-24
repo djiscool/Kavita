@@ -1,37 +1,44 @@
 import {DOCUMENT} from '@angular/common';
-import { HttpClient } from '@angular/common/http';
+import {HttpClient} from '@angular/common/http';
 import {
+  computed,
   DestroyRef,
+  effect,
   inject,
-  Inject,
   Injectable,
   Renderer2,
   RendererFactory2,
-  SecurityContext
+  SecurityContext, untracked
 } from '@angular/core';
 import {DomSanitizer} from '@angular/platform-browser';
-import {ToastrService} from 'ngx-toastr';
-import {filter, map, ReplaySubject, take, tap} from 'rxjs';
-import {environment} from 'src/environments/environment';
+import {ToastrService} from '@openng/ngx-toastr';
+import {EMPTY, map, ReplaySubject, take, tap} from 'rxjs';
+import {environment} from '../../environments/environment';
 import {ConfirmService} from '../shared/confirm.service';
 import {NotificationProgressEvent} from '../_models/events/notification-progress-event';
 import {SiteTheme, ThemeProvider} from '../_models/preferences/site-theme';
 import {TextResonse} from '../_types/text-response';
 import {EVENTS, MessageHubService} from './message-hub.service';
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {takeUntilDestroyed, toSignal} from "@angular/core/rxjs-interop";
 import {translate} from "@jsverse/transloco";
 import {DownloadableSiteTheme} from "../_models/theme/downloadable-site-theme";
 import {NgxFileDropEntry} from "ngx-file-drop";
 import {SiteThemeUpdatedEvent} from "../_models/events/site-theme-updated-event";
-import {NavigationEnd, Router} from "@angular/router";
 import {ColorscapeService} from "./colorscape.service";
 import {ColorScape} from "../_models/theme/colorscape";
-import {debounceTime} from "rxjs/operators";
+import {AccountService} from "./account.service";
 
 @Injectable({
   providedIn: 'root'
 })
 export class ThemeService {
+  private document = inject<Document>(DOCUMENT);
+  private httpClient = inject(HttpClient);
+  private domSanitizer = inject(DomSanitizer);
+  private confirmService = inject(ConfirmService);
+  private toastr = inject(ToastrService);
+  private accountService = inject(AccountService);
+
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly colorTransitionService = inject(ColorscapeService);
@@ -41,12 +48,15 @@ export class ThemeService {
 
   private currentThemeSource = new ReplaySubject<SiteTheme>(1);
   public currentTheme$ = this.currentThemeSource.asObservable();
+  public currentTheme = toSignal(this.currentTheme$);
+  public chartsColourPalette = computed(() => this.loadChartColours(this.currentTheme()));
 
   private themesSource = new ReplaySubject<SiteTheme[]>(1);
   public themes$ = this.themesSource.asObservable();
-  
-  private darkModeSource = new ReplaySubject<boolean>(1);
-  public isDarkMode$ = this.darkModeSource.asObservable();
+  public themes = toSignal(this.themes$);
+
+  // Track in its own signal so effects only run when the name changes
+  private readonly currentThemeName = computed(() => this.accountService.currentUser()?.preferences.theme.name ?? this.defaultTheme);
 
   /**
    * Maintain a cache of themes. SignalR will inform us if we need to refresh cache
@@ -57,9 +67,10 @@ export class ThemeService {
   private baseUrl = environment.apiUrl;
 
 
-  constructor(rendererFactory: RendererFactory2, @Inject(DOCUMENT) private document: Document, private httpClient: HttpClient,
-  messageHub: MessageHubService, private domSanitizer: DomSanitizer, private confirmService: ConfirmService, private toastr: ToastrService,
-  private router: Router) {
+  constructor() {
+    const rendererFactory = inject(RendererFactory2);
+    const messageHub = inject(MessageHubService);
+
     this.renderer = rendererFactory.createRenderer(null, null);
 
     messageHub.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(message => {
@@ -78,13 +89,16 @@ export class ThemeService {
         const evt = (message.payload as SiteThemeUpdatedEvent);
         this.currentTheme$.pipe(take(1)).subscribe(currentTheme => {
           if (currentTheme && currentTheme.name !== EVENTS.SiteThemeProgress) return;
+
           console.log('Active theme has been updated, refreshing theme');
           this.setTheme(currentTheme.name);
-
         });
       }
+    });
 
-
+    effect(() => {
+      const themeName = this.currentThemeName();
+      this.setTheme(themeName);
     });
   }
 
@@ -100,7 +114,13 @@ export class ThemeService {
     const formData = new FormData()
     formData.append('formFile', themeFile, fileEntry.relativePath);
 
-    return this.httpClient.post<SiteTheme>(this.baseUrl + 'theme/upload-theme', formData);
+    return this.httpClient.post<SiteTheme>(this.baseUrl + 'theme/upload-theme', formData).pipe(
+      tap(theme => {
+        const currentThemes = this.themes() ?? [];
+        const allThemes = [...currentThemes, theme];
+        this.themesSource.next(allThemes);
+      })
+    );
   }
 
   getColorScheme() {
@@ -132,6 +152,8 @@ export class ThemeService {
   }
 
   getThemes() {
+    if (!this.accountService.isLoggedIn()) return EMPTY;
+
     return this.httpClient.get<SiteTheme[]>(this.baseUrl + 'theme').pipe(map(themes => {
       this.themeCache = themes;
       this.themesSource.next(themes);
@@ -217,40 +239,38 @@ export class ThemeService {
             this.setTheme('dark');
             return;
           }
-          const styleElem = this.document.createElement('style');
-          styleElem.id = 'theme-' + theme.name;
-          styleElem.appendChild(this.document.createTextNode(content));
-          this.renderer.appendChild(this.document.head, styleElem);
-
-          // Check if the theme has --theme-color and apply it to meta tag
-          const themeColor = this.getThemeColor();
-          if (themeColor) {
-            this.document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
-            this.document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute('content', themeColor);
-          }
-
-          const tileColor = this.getTileColor();
-          if (tileColor) {
-            this.document.querySelector('meta[name="msapplication-TileColor"]')?.setAttribute('content', themeColor);
-          }
-
-          const colorScheme = this.getColorScheme();
-          if (colorScheme) {
-            this.document.querySelector('body')?.setAttribute('theme', colorScheme);
-          }
-
+          this.injectStyleNode(theme, content);
+          this.updateMetaTags();
           this.currentThemeSource.next(theme);
-          this.darkModeSource.next(this.isDarkTheme());
         });
       } else {
+        this.updateMetaTags();
         this.currentThemeSource.next(theme);
-        this.darkModeSource.next(this.isDarkTheme());
       }
     } else {
       // Only time themes isn't already loaded is on first load
       this.getThemes().subscribe(themes => {
         this.setTheme(themeName);
       });
+    }
+  }
+
+  private updateMetaTags() {
+    const themeColor = this.getThemeColor();
+    if (themeColor) {
+      this.document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
+      this.document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute('content', this.isDarkTheme() ? 'black' : 'default');
+      this.document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', this.isDarkTheme() ? 'dark' : 'light');
+    }
+
+    const tileColor = this.getTileColor();
+    if (tileColor) {
+      this.document.querySelector('meta[name="msapplication-TileColor"]')?.setAttribute('content', tileColor);
+    }
+
+    const colorScheme = this.getColorScheme();
+    if (colorScheme) {
+      this.document.querySelector('body')?.setAttribute('theme', colorScheme);
     }
   }
 
@@ -266,10 +286,41 @@ export class ThemeService {
   }
 
   private unsetThemes() {
-    this.themeCache.forEach(theme => this.document.body.classList.remove(theme.selector));
+    this.themeCache.forEach(theme => {
+      this.document.body.classList.remove(theme.selector);
+
+
+      // TODO: BUG: We aren't removing the old style tags, thus some style conflict can occur (switch theme, delete button might be green).
+      // We need to remove the old style tags, however this brought instability in v0.8.9. I removed this for hotfix, let's revisit it later.
+      // Remove the injected style (unless it's Dark)
+      // if (theme.provider === ThemeProvider.System) return;
+      // const styleElem = this.document.querySelector('style#theme-' + theme.name);
+      // if (styleElem) {
+      //   this.renderer.removeChild(this.document.head, styleElem);
+      // }
+    });
+  }
+
+  private injectStyleNode(theme: SiteTheme, content: string) {
+    const styleElem = this.document.createElement('style');
+    styleElem.id = 'theme-' + theme.name;
+    styleElem.appendChild(this.document.createTextNode(content));
+    this.renderer.appendChild(this.document.head, styleElem);
   }
 
   private unsetBookThemes() {
     Array.from(this.document.body.classList).filter(cls => cls.startsWith('brtheme-')).forEach(c => this.document.body.classList.remove(c));
+  }
+
+  private loadChartColours(_: SiteTheme | undefined) {
+     return [
+       '--charts-palette1',
+       '--charts-palette2',
+       '--charts-palette3',
+       '--charts-palette4',
+       '--charts-palette5',
+       '--charts-palette6',
+       '--charts-palette7',
+     ].map(ccsVarName => this.getCssVariable(ccsVarName))
   }
 }

@@ -1,0 +1,789 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using AutoMapper;
+using Hangfire;
+using Kavita.API.Database;
+using Kavita.API.Repositories;
+using Kavita.API.Services;
+using Kavita.API.Services.Plus;
+using Kavita.API.Services.Scanner;
+using Kavita.API.Services.SignalR;
+using Kavita.Common;
+using Kavita.Common.Extensions;
+using Kavita.Models.Builders;
+using Kavita.Models.Constants;
+using Kavita.Models.DTOs;
+using Kavita.Models.DTOs.Account;
+using Kavita.Models.DTOs.JumpBar;
+using Kavita.Models.DTOs.SignalR;
+using Kavita.Models.DTOs.System;
+using Kavita.Models.Entities;
+using Kavita.Models.Entities.Enums;
+using Kavita.Models.Entities.Metadata;
+using Kavita.Models.Entities.User;
+using Kavita.Models.Extensions;
+using Kavita.Server.Attributes;
+using Kavita.Services.Extensions;
+using Kavita.Services.Scanner;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using TaskScheduler = Kavita.Services.TaskScheduler;
+
+namespace Kavita.Server.Controllers;
+
+[Authorize]
+public class LibraryController(
+    IDirectoryService directoryService,
+    ILogger<LibraryController> logger,
+    IMapper mapper,
+    ITaskScheduler taskScheduler,
+    IUnitOfWork unitOfWork,
+    IEventHub eventHub,
+    IFolderWatchService folderWatchService,
+    ILocalizationService localizationService)
+    : BaseApiController
+{
+
+    /// <summary>
+    /// Creates a new Library. Upon library creation, adds new library to all Admin accounts.
+    /// </summary>
+    /// <param name="dto"></param>
+    /// <returns>Created Library</returns>
+    [HttpPost("create")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult<LibraryDto?>> AddLibrary(UpdateLibraryDto dto)
+    {
+        var ct = HttpContext.RequestAborted;
+        if (await unitOfWork.LibraryRepository.LibraryExists(dto.Name, ct))
+        {
+            return BadRequest(await localizationService.TranslateAsync(UserId, "library-name-exists"));
+        }
+
+        ValidateMetadataProvider(dto.Type, dto.MetadataProvider);
+
+        var library = new LibraryBuilder(dto.Name, dto.Type)
+            .WithFolders(dto.Folders.Select(x => new FolderPath {Path = x}).Distinct().ToList())
+            .WithFolderWatchMode(dto.FolderWatchMode ?? FolderWatchMode.Automatic)
+            .WithIncludeInDashboard(dto.IncludeInDashboard)
+            .WithManageCollections(dto.ManageCollections)
+            .WithManageReadingLists(dto.ManageReadingLists)
+            .WithAllowScrobbling(dto.AllowScrobbling)
+            .WithAllowMetadataMatching(dto.AllowMetadataMatching)
+            .WithEnableMetadata(dto.EnableMetadata)
+            .WithMetadataProvider(dto.MetadataProvider)
+            .Build();
+
+        library.LibraryFileTypes = dto.FileGroupTypes
+            .Select(t => new LibraryFileTypeGroup() {FileTypeGroup = t, LibraryId = library.Id})
+            .Distinct()
+            .ToList();
+        library.LibraryExcludePatterns = dto.ExcludePatterns
+            .Select(t => new LibraryExcludePattern() {Pattern = t, LibraryId = library.Id})
+            .Distinct()
+            .ToList();
+        library.RemovePrefixForSortName = dto.RemovePrefixForSortName;
+        library.DefaultLanguage = dto.DefaultLanguage;
+        library.InheritWebLinksFromFirstChapter = dto.InheritWebLinksFromFirstChapter;
+
+        // Override Scrobbling for Comic libraries since there are no providers to scrobble to
+        if (library.Type == LibraryType.Comic)
+        {
+            logger.LogInformation("Overrode Library {Name} to disable scrobbling since there are no providers for Comics", dto.Name.Sanitize());
+            library.AllowScrobbling = false;
+        }
+
+        unitOfWork.LibraryRepository.Add(library);
+
+        var admins = (await unitOfWork.UserRepository.GetAdminUsersAsync(ct)).ToList();
+        foreach (var admin in admins)
+        {
+            admin.Libraries ??= [];
+            admin.Libraries.Add(library);
+        }
+
+        if (!await unitOfWork.CommitAsync(ct)) return BadRequest(await localizationService.TranslateAsync(UserId, "generic-library"));
+
+        logger.LogInformation("Created a new library: {LibraryName}", library.Name.Sanitize());
+
+        // Assign all the necessary users with this library side nav
+        var userIds = admins.Select(u => u.Id).ToList();
+        var userNeedingNewLibrary = (await unitOfWork.UserRepository.GetAllUsersAsync(AppUserIncludes.SideNavStreams, ct: ct))
+            .Where(u => userIds.Contains(u.Id))
+            .ToList();
+
+        foreach (var user in userNeedingNewLibrary)
+        {
+            user.CreateSideNavFromLibrary(library);
+            unitOfWork.UserRepository.Update(user);
+        }
+
+        if (!await unitOfWork.CommitAsync(ct)) return BadRequest(await localizationService.TranslateAsync(UserId, "generic-library"));
+
+        // I added this twice as some users were having issues where their new library wasn't added to the side nav.
+        // I wasn't able to reproduce but could validate it didn't happen with this extra commit. (https://github.com/Kareadita/Kavita/issues/4248)
+        if (unitOfWork.HasChanges())
+        {
+            await unitOfWork.CommitAsync(ct);
+        }
+
+        if (library.FolderWatchMode != FolderWatchMode.Off)
+        {
+            await folderWatchService.RestartWatching();
+        }
+
+        ScanJobQueue.Enqueue(() => taskScheduler.EnqueueScanLibrary(library.Id, false));
+        await eventHub.SendMessageAsync(MessageFactory.LibraryModified,
+            MessageFactory.LibraryModifiedEvent(library.Id, "create"), false, ct);
+        await eventHub.SendMessageAsync(MessageFactory.SideNavUpdate,
+            MessageFactory.SideNavUpdateEvent(UserId), false, ct);
+
+        return Ok(await unitOfWork.LibraryRepository.GetLibraryDtoByIdAsync(library.Id, ct));
+    }
+
+    /// <summary>
+    /// Returns a list of directories for a given path. If path is empty, returns root drives.
+    /// </summary>
+    /// <param name="path"></param>
+    /// <returns></returns>
+    [HttpGet("list")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public ActionResult<IEnumerable<DirectoryDto>> GetDirectories(string? path)
+    {
+        var ct = HttpContext.RequestAborted;
+        if (string.IsNullOrEmpty(path))
+        {
+            return Ok(Directory.GetLogicalDrives().Select(d => new DirectoryDto()
+            {
+                Name = d,
+                FullPath = d
+            }));
+        }
+
+        if (path.Contains("..")) return BadRequest();
+
+        if (!Directory.Exists(path)) return Ok(directoryService.ListDirectory(Path.GetDirectoryName(path)!));
+
+        return Ok(directoryService.ListDirectory(path));
+    }
+
+    /// <summary>
+    /// For each root, checks if there are any supported files at root to warn the user during library creation about an invalid setup
+    /// </summary>
+    /// <returns></returns>
+    [HttpPost("has-files-at-root")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public ActionResult<IList<string>> AnyFilesAtRoot(CheckForFilesInFolderRootsDto dto)
+    {
+        var ct = HttpContext.RequestAborted;
+        var foldersWithFilesAtRoot = dto.Roots
+            .Where(root => directoryService
+                .GetFilesWithCertainExtensions(root, Parser.SupportedExtensions, SearchOption.TopDirectoryOnly)
+                .Any())
+            .ToList();
+
+        return Ok(foldersWithFilesAtRoot);
+    }
+
+    /// <summary>
+    /// Return a specific library
+    /// </summary>
+    /// <remarks>If the user is not an admin, only id, type, and name will be returned (<see cref="LiteLibraryDto"/>)</remarks>
+    /// <returns></returns>
+    [HttpGet]
+    [LibraryAccess]
+    public async Task<ActionResult<LibraryDto?>> GetLibrary(int libraryId)
+    {
+        var ct = HttpContext.RequestAborted;
+        if (User.IsInRole(PolicyConstants.AdminRole))
+        {
+            return Ok(await unitOfWork.LibraryRepository.GetLibraryDtoByIdAsync(libraryId, ct));
+        }
+        return Ok(await unitOfWork.LibraryRepository.GetLiteLibraryDtoByIdAsync(libraryId, ct));
+    }
+
+    /// <summary>
+    /// Return all libraries in the Server
+    /// </summary>
+    /// <returns></returns>
+    [HttpGet("libraries")]
+    public async Task<ActionResult<IEnumerable<LibraryDto>>> GetLibraries()
+    {
+        var ct = HttpContext.RequestAborted;
+        return Ok(await GetLibrariesForUser(Username!, ct));
+    }
+
+    /// <summary>
+    /// Gets libraries for the given user that you also have access to
+    /// </summary>
+    /// <param name="userId"></param>
+    /// <returns></returns>
+    [HttpGet("user-libraries")]
+    public async Task<ActionResult<IEnumerable<LibraryDto>>> GetLibrariesForUser(int userId)
+    {
+        var ct = HttpContext.RequestAborted;
+        var user = await unitOfWork.UserRepository.GetUserByIdAsync(userId, ct: ct);
+        if (user == null || string.IsNullOrEmpty(user.UserName)) return BadRequest();
+
+        var ownLibraries = await GetLibrariesForUser(Username!, ct);
+        var otherLibraries = await GetLibrariesForUser(user.UserName, ct);
+
+        var sharedLibraries = otherLibraries.IntersectBy(ownLibraries.Select(l => l.Id), l => l.Id).ToList();
+
+        return Ok(sharedLibraries);
+    }
+
+    /// <summary>
+    /// Get all libraries a given username has access to
+    /// </summary>
+    /// <param name="username"></param>
+    /// <returns></returns>
+    private Task<IList<LibraryDto>> GetLibrariesForUser(string username, CancellationToken ct = default)
+    {
+        return unitOfWork.LibraryRepository.GetLibraryDtosForUsernameAsync(username, ct);
+    }
+
+    /// <summary>
+    /// For a given library, generate the jump bar information
+    /// </summary>
+    /// <param name="libraryId"></param>
+    /// <returns></returns>
+    [LibraryAccess]
+    [HttpGet("jump-bar")]
+    public ActionResult<IEnumerable<JumpKeyDto>> GetJumpBar(int libraryId)
+    {
+        // TODO: Not used by UI
+        var ct = HttpContext.RequestAborted;
+        return Ok(unitOfWork.LibraryRepository.GetJumpBarAsync(libraryId, ct));
+    }
+
+    /// <summary>
+    /// Grants a user account access to a Library
+    /// </summary>
+    /// <param name="updateLibraryForUserDto"></param>
+    /// <returns></returns>
+    [HttpPost("grant-access")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult<MemberDto>> UpdateUserLibraries(UpdateLibraryForUserDto updateLibraryForUserDto)
+    {
+        // TODO: This isn't used by UI
+        var ct = HttpContext.RequestAborted;
+        var user = await unitOfWork.UserRepository.GetUserByUsernameAsync(updateLibraryForUserDto.Username, AppUserIncludes.SideNavStreams, ct);
+        if (user == null) return BadRequest(await localizationService.TranslateAsync(UserId, "user-doesnt-exist"));
+
+        var libraryString = string.Join(',', updateLibraryForUserDto.SelectedLibraries.Select(x => x.Name));
+        logger.LogInformation("Granting user {UserId} access to: {Libraries}", user.Id, libraryString.Sanitize());
+
+        var allLibraries = await unitOfWork.LibraryRepository.GetLibrariesAsync(ct: ct);
+        foreach (var library in allLibraries)
+        {
+            library.AppUsers ??= [];
+
+            var libraryContainsUser = library.AppUsers.Any(u => u.UserName == user.UserName);
+            var libraryIsSelected = updateLibraryForUserDto.SelectedLibraries.Any(l => l.Id == library.Id);
+
+            if (libraryContainsUser && !libraryIsSelected)
+            {
+                library.AppUsers.Remove(user);
+                user.RemoveSideNavFromLibrary(library);
+            }
+            else if (!libraryContainsUser && libraryIsSelected)
+            {
+                library.AppUsers.Add(user);
+                user.CreateSideNavFromLibrary(library);
+            }
+        }
+
+        if (!unitOfWork.HasChanges())
+        {
+            logger.LogInformation("No changes for update library access");
+            return Ok(mapper.Map<MemberDto>(user));
+        }
+
+        if (await unitOfWork.CommitAsync(ct))
+        {
+            logger.LogInformation("Added: {SelectedLibraries} to {UserId}", libraryString.Sanitize(), user.Id);
+
+            unitOfWork.UserRepository.Update(user);
+
+            return Ok(mapper.Map<MemberDto>(user));
+        }
+
+
+        return BadRequest(await localizationService.TranslateAsync(UserId, "generic-library"));
+    }
+
+    /// <summary>
+    /// Scans a given library for file changes.
+    /// </summary>
+    /// <param name="libraryId"></param>
+    /// <param name="force">If true, will ignore any optimizations to avoid file I/O and will treat similar to a first scan</param>
+    /// <returns></returns>
+    [HttpPost("scan")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult> Scan(int libraryId, bool force = false)
+    {
+        if (libraryId <= 0) return BadRequest(await localizationService.TranslateAsync(UserId, "greater-0", "libraryId"));
+        await taskScheduler.EnqueueScanLibrary(libraryId, force);
+        return Ok();
+    }
+
+    /// <summary>
+    /// Watches the library again after its watcher missed a change or kept failing
+    /// </summary>
+    [HttpPost("folder-watch/retry")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    [LibraryAccess]
+    public async Task<ActionResult<FolderWatchStatusDto>> RetryFolderWatch(int libraryId)
+    {
+        var status = await folderWatchService.RetryAsync(libraryId);
+        if (status == null) return NotFound();
+
+        return Ok(status);
+    }
+
+    /// <summary>
+    /// How the library notices changes now and why
+    /// </summary>
+    [HttpGet("watch-status")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    [LibraryAccess]
+    public async Task<ActionResult<FolderWatchStatusDto>> GetWatchStatus(int libraryId)
+    {
+        var status = await folderWatchService.GetStatusAsync(libraryId);
+        if (status == null) return NotFound();
+
+        return Ok(status);
+    }
+
+    /// <summary>
+    /// Enqueues a bunch of library scans
+    /// </summary>
+    /// <returns></returns>
+    [HttpPost("scan-multiple")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult> ScanMultiple(BulkActionDto dto)
+    {
+        foreach (var libraryId in dto.Ids)
+        {
+            await taskScheduler.EnqueueScanLibrary(libraryId, dto.Force ?? false);
+        }
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Scans a given library for file changes. If another scan task is in progress, will reschedule the invocation for 3 hours in future.
+    /// </summary>
+    /// <param name="force">If true, will ignore any optimizations to avoid file I/O and will treat similar to a first scan</param>
+    /// <returns></returns>
+    [HttpPost("scan-all")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult> ScanAll(bool force = false)
+    {
+        await taskScheduler.EnqueueScanLibraries(force);
+        return Ok();
+    }
+
+    [HttpPost("refresh-metadata")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public ActionResult RefreshMetadata(int libraryId, bool force = true, bool forceColorscape = true)
+    {
+        taskScheduler.RefreshMetadata(libraryId, force, forceColorscape);
+        return Ok();
+    }
+
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    [HttpPost("refresh-metadata-multiple")]
+    public ActionResult RefreshMetadataMultiple(BulkActionDto dto, bool forceColorscape = true)
+    {
+        foreach (var libraryId in dto.Ids)
+        {
+            taskScheduler.RefreshMetadata(libraryId, dto.Force ?? false, forceColorscape);
+        }
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Copy the library settings (adv tab + optional type) to a set of other libraries.
+    /// </summary>
+    /// <param name="dto"></param>
+    /// <returns></returns>
+    [HttpPost("copy-settings-from")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult> CopySettingsFromLibraryToLibraries(CopySettingsFromLibraryDto dto)
+    {
+        var ct = HttpContext.RequestAborted;
+        var sourceLibrary = await unitOfWork.LibraryRepository.GetLibraryForIdAsync(dto.SourceLibraryId, LibraryIncludes.ExcludePatterns | LibraryIncludes.FileTypes, ct);
+        if (sourceLibrary == null) return BadRequest("SourceLibraryId must exist");
+
+        var libraries = await unitOfWork.LibraryRepository.GetLibraryForIdsAsync(dto.TargetLibraryIds, LibraryIncludes.ExcludePatterns | LibraryIncludes.FileTypes | LibraryIncludes.Folders, ct);
+        foreach (var targetLibrary in libraries)
+        {
+            UpdateLibrarySettings(new UpdateLibraryDto
+            {
+                Folders = targetLibrary.Folders.Select(s => s.Path),
+                Name = targetLibrary.Name,
+                Id = targetLibrary.Id,
+                Type = sourceLibrary.Type,
+                AllowScrobbling = sourceLibrary.AllowScrobbling,
+                AllowMetadataMatching = sourceLibrary.AllowMetadataMatching,
+                EnableMetadata = sourceLibrary.EnableMetadata,
+                RemovePrefixForSortName = sourceLibrary.RemovePrefixForSortName,
+                InheritWebLinksFromFirstChapter = sourceLibrary.InheritWebLinksFromFirstChapter,
+                DefaultLanguage = sourceLibrary.DefaultLanguage,
+                MetadataProvider = sourceLibrary.MetadataProvider,
+                ExcludePatterns = sourceLibrary.LibraryExcludePatterns.Select(p => p.Pattern).ToList(),
+                FolderWatchMode = sourceLibrary.FolderWatchMode,
+                ManageCollections = sourceLibrary.ManageCollections,
+                FileGroupTypes = sourceLibrary.LibraryFileTypes.Select(t => t.FileTypeGroup).ToList(),
+                IncludeInDashboard = sourceLibrary.IncludeInDashboard,
+                IncludeInSearch = sourceLibrary.IncludeInSearch,
+                ManageReadingLists = sourceLibrary.ManageReadingLists,
+            }, targetLibrary, dto.IncludeType);
+        }
+
+        await unitOfWork.CommitAsync(ct);
+
+        if (sourceLibrary.FolderWatchMode != FolderWatchMode.Off)
+        {
+            BackgroundJob.Enqueue(() => folderWatchService.RestartWatching());
+        }
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Given a valid path, will invoke either a Scan Series or Scan Library. If the folder does not exist within Kavita, the request will be ignored
+    /// </summary>
+    /// <param name="dto"></param>
+    /// <returns></returns>
+    [AllowAnonymous]
+    [HttpPost("scan-folder")]
+    public async Task<ActionResult> ScanFolder(ScanFolderDto dto)
+    {
+        var ct = HttpContext.RequestAborted;
+        var user = await unitOfWork.UserRepository.GetUserByAuthKey(dto.ApiKey, ct: ct);
+        if (user == null) return Unauthorized();
+
+        // Validate user has Admin privileges
+        var isAdmin = await unitOfWork.UserRepository.IsUserAdminAsync(user, ct);
+        if (!isAdmin) return BadRequest("API key must belong to an admin");
+
+        if (dto.FolderPath.Contains(".."))
+        {
+            return BadRequest(await localizationService.TranslateAsync(UserId, "invalid-path"));
+        }
+
+        await taskScheduler.EnqueueScanFolderFromApiAsync(dto.FolderPath, dto.AbortOnNoSeriesMatch);
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Deletes the library and all series within it.
+    /// </summary>
+    /// <remarks>This does not touch any files</remarks>
+    /// <param name="libraryId"></param>
+    /// <returns></returns>
+    [HttpDelete("delete")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult<bool>> DeleteLibrary(int libraryId)
+    {
+        var ct = HttpContext.RequestAborted;
+        logger.LogInformation("Library {LibraryId} is being deleted by {UserName}", libraryId, Username!);
+
+        try
+        {
+            var result = await DeleteLibrary(libraryId, UserId, ct);
+            if (result)
+            {
+                // Inform the user's side nav to remove it if needed
+                await eventHub.SendMessageAsync(MessageFactory.SideNavUpdate,
+                    MessageFactory.SideNavUpdateEvent(UserId), false, ct);
+            }
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Deletes multiple libraries and all series within it.
+    /// </summary>
+    /// <remarks>This does not touch any files</remarks>
+    /// <param name="libraryIds"></param>
+    /// <returns></returns>
+    [HttpDelete("delete-multiple")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult> DeleteMultipleLibraries([FromBody] List<int> libraryIds)
+    {
+        var ct = HttpContext.RequestAborted;
+        var username = Username!;
+
+        var allLibraries = await unitOfWork.LibraryRepository.GetLibrariesAsync(ct: ct);
+        var toDelete = allLibraries.Where(l => libraryIds.Contains(l.Id)).Select(l => l.Id).ToList();
+
+        logger.LogInformation("Libraries {LibraryIds} are being deleted by {UserName}", toDelete, username);
+
+        foreach (var libraryId in toDelete)
+        {
+            try
+            {
+                await DeleteLibrary(libraryId, UserId, ct);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        return Ok();
+    }
+
+    private async Task<bool> DeleteLibrary(int libraryId, int userId, CancellationToken ct = default)
+    {
+        var series = await unitOfWork.SeriesRepository.GetSeriesForLibraryIdAsync(libraryId, ct: ct);
+        var seriesIds = series.Select(x => x.Id).ToArray();
+        var chapterIds =
+            await unitOfWork.SeriesRepository.GetChapterIdsForSeriesAsync(seriesIds, ct);
+
+        try
+        {
+            if (ScanJobQueue.Read().Jobs.IsLibraryInUse(libraryId, seriesIds))
+            {
+                logger.LogInformation("User is attempting to delete a library while a scan is in progress");
+                throw new KavitaException(await localizationService.TranslateAsync(userId, "delete-library-while-scan"));
+            }
+
+            var library = await unitOfWork.LibraryRepository.GetLibraryForIdAsync(libraryId, ct: ct);
+            if (library == null)
+            {
+                throw new KavitaException(await localizationService.TranslateAsync(userId, "library-doesnt-exist"));
+            }
+
+
+            // Due to a bad schema that I can't figure out how to fix, we need to erase all RelatedSeries before we delete the library
+            // Aka SeriesRelation has an invalid foreign key
+            foreach (var s in await unitOfWork.SeriesRepository.GetSeriesForLibraryIdAsync(library.Id, SeriesIncludes.Related, ct))
+            {
+                s.Relations = new List<SeriesRelation>();
+                unitOfWork.SeriesRepository.Update(s);
+            }
+            await unitOfWork.CommitAsync(ct);
+
+            unitOfWork.LibraryRepository.Delete(library);
+
+            var streams = await unitOfWork.UserRepository.GetSideNavStreamsByLibraryId(library.Id, ct);
+            unitOfWork.UserRepository.Delete(streams);
+
+
+            await unitOfWork.CommitAsync(ct);
+
+            await eventHub.SendMessageAsync(MessageFactory.SideNavUpdate,
+                MessageFactory.SideNavUpdateEvent(userId), false, ct);
+
+            if (chapterIds.Any())
+            {
+                await unitOfWork.AppUserProgressRepository.CleanupAbandonedChapters(ct);
+                await unitOfWork.CommitAsync(ct);
+                taskScheduler.CleanupChapters(chapterIds);
+            }
+
+            BackgroundJob.Enqueue(() => folderWatchService.RestartWatching());
+
+            foreach (var seriesId in seriesIds)
+            {
+                await eventHub.SendMessageAsync(MessageFactory.SeriesRemoved,
+                    MessageFactory.SeriesRemovedEvent(seriesId, libraryId), false, ct);
+            }
+
+            await eventHub.SendMessageAsync(MessageFactory.LibraryModified,
+                MessageFactory.LibraryModifiedEvent(libraryId, "delete"), false, ct);
+
+            var userPreferences = await unitOfWork.DataContext.AppUserPreferences.ToListAsync(cancellationToken: ct);
+            foreach (var userPreference in userPreferences)
+            {
+                userPreference.SocialPreferences.SocialLibraries = userPreference.SocialPreferences.SocialLibraries
+                    .Where(l => l != libraryId).ToList();
+            }
+
+            await unitOfWork.CommitAsync(ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "There was a critical issue. Please try again");
+            await unitOfWork.RollbackAsync(ct);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if the library name exists or not
+    /// </summary>
+    /// <param name="name">If empty or null, will return true as that is invalid</param>
+    /// <returns></returns>
+    [HttpGet("name-exists")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult<bool>> IsLibraryNameValid(string name)
+    {
+        var ct = HttpContext.RequestAborted;
+        if (string.IsNullOrWhiteSpace(name)) return Ok(true);
+        return Ok(await unitOfWork.LibraryRepository.LibraryExists(name.Trim(), ct));
+    }
+
+    /// <summary>
+    /// Updates an existing Library with new name, folders, and/or type.
+    /// </summary>
+    /// <remarks>Any folder or type change will invoke a scan.</remarks>
+    /// <param name="dto"></param>
+    /// <returns></returns>
+    [HttpPost("update")]
+    [Authorize(Policy = PolicyGroups.AdminPolicy)]
+    public async Task<ActionResult> UpdateLibrary(UpdateLibraryDto dto)
+    {
+        var ct = HttpContext.RequestAborted;
+        var userId = UserId;
+        var library = await unitOfWork.LibraryRepository.GetLibraryForIdAsync(dto.Id, LibraryIncludes.Folders | LibraryIncludes.FileTypes | LibraryIncludes.ExcludePatterns, ct);
+        if (library == null) return BadRequest(await localizationService.TranslateAsync(userId, "library-doesnt-exist"));
+
+        var newName = dto.Name.Trim();
+        if (await unitOfWork.LibraryRepository.LibraryExists(newName, ct) && !library.Name.Equals(newName))
+            return BadRequest(await localizationService.TranslateAsync(userId, "library-name-exists"));
+
+        library.Name = newName;
+        var foldersUpdate = library.SyncFolders(dto.Folders);
+
+        var typeUpdate = library.Type != dto.Type;
+        var folderWatchingUpdate = dto.FolderWatchMode.HasValue && library.FolderWatchMode != dto.FolderWatchMode;
+        UpdateLibrarySettings(dto, library);
+
+        if (!await unitOfWork.CommitAsync(ct)) return BadRequest(await localizationService.TranslateAsync(userId, "generic-library-update"));
+
+        if (folderWatchingUpdate || foldersUpdate || typeUpdate)
+        {
+            BackgroundJob.Enqueue(() => folderWatchService.RestartWatching());
+        }
+
+        if (foldersUpdate || typeUpdate)
+        {
+            await taskScheduler.EnqueueScanLibrary(library.Id);
+        }
+
+        await eventHub.SendMessageAsync(MessageFactory.LibraryModified,
+            MessageFactory.LibraryModifiedEvent(library.Id, "update"), false, ct);
+
+        await eventHub.SendMessageAsync(MessageFactory.SideNavUpdate,
+            MessageFactory.SideNavUpdateEvent(userId), false, ct);
+
+        return Ok(await unitOfWork.LibraryRepository.GetLibraryDtoByIdAsync(library.Id, ct));
+
+    }
+
+    /// <summary>
+    /// Return all <see cref="MetadataProvider"/>s that are supported by the given <see cref="LibraryType"/>"/>
+    /// </summary>
+    /// <param name="libraryType"></param>
+    /// <returns></returns>
+    [HttpGet("metadata-providers")]
+    public ActionResult<List<MetadataProvider>> SupportedMetadataProviders([FromQuery] LibraryType libraryType)
+    {
+        if (KavitaPlusConfiguration.MetadataProvidersForLibraryTypes.TryGetValue(libraryType, out var providers))
+        {
+            return Ok(providers);
+        }
+
+        return Ok(new List<MetadataProvider>());
+    }
+
+    /// <summary>
+    /// <see cref="LibraryType"/> with KavitaPlus metadata support
+    /// </summary>
+    /// <returns></returns>
+    [HttpGet("metadata-enabled-libraries")]
+    public ActionResult<List<LibraryType>> LibrariesWithMetadataSupport()
+    {
+        return Ok(KavitaPlusConfiguration.MetadataProvidersForLibraryTypes.Keys.ToList());
+    }
+
+    /// <summary>
+    /// <see cref="LibraryType"/> with KavitaPlus scrobble support
+    /// </summary>
+    /// <returns></returns>
+    [HttpGet("scrobble-enabled-libraries")]
+    public ActionResult<List<LibraryType>> LibrariesWithScrobbleSupport()
+    {
+        return Ok(KavitaPlusConfiguration.ScrobbleProvidersForLibraryTypes.Keys.ToList());
+    }
+
+    private void UpdateLibrarySettings(UpdateLibraryDto dto, Library library, bool updateType = true)
+    {
+        // Reminder: Add new fields to the Create Library Endpoint!
+
+        if (updateType)
+        {
+            library.Type = dto.Type;
+        }
+
+        ValidateMetadataProvider(library.Type, dto.MetadataProvider);
+
+        if (dto.FolderWatchMode.HasValue)
+        {
+            library.FolderWatchMode = dto.FolderWatchMode.Value;
+        }
+        library.IncludeInDashboard = dto.IncludeInDashboard;
+        library.IncludeInSearch = dto.IncludeInSearch;
+        library.ManageCollections = dto.ManageCollections;
+        library.ManageReadingLists = dto.ManageReadingLists;
+        library.AllowScrobbling = dto.AllowScrobbling;
+        library.AllowMetadataMatching = dto.AllowMetadataMatching;
+        library.EnableMetadata = dto.EnableMetadata;
+        library.RemovePrefixForSortName = dto.RemovePrefixForSortName;
+        library.InheritWebLinksFromFirstChapter = dto.InheritWebLinksFromFirstChapter;
+        library.DefaultLanguage = dto.DefaultLanguage;
+        library.MetadataProvider = dto.MetadataProvider;
+
+        library.LibraryFileTypes = dto.FileGroupTypes
+            .Select(t => new LibraryFileTypeGroup() {FileTypeGroup = t, LibraryId = library.Id})
+            .Distinct()
+            .ToList();
+
+        library.LibraryExcludePatterns = dto.ExcludePatterns
+            .Distinct()
+            .Select(t => new LibraryExcludePattern() {Pattern = t, LibraryId = library.Id})
+            .ToList();
+
+        unitOfWork.LibraryRepository.Update(library);
+    }
+
+    private static void ValidateMetadataProvider(LibraryType type, MetadataProvider provider)
+    {
+        if (!KavitaPlusConfiguration.IsValidMetadataProviderForLibraryType(type, provider))
+        {
+            throw new KavitaException("invalid-metadata-provider");
+        }
+    }
+
+    /// <summary>
+    /// Returns the type of the underlying library
+    /// </summary>
+    /// <param name="libraryId"></param>
+    /// <returns></returns>
+    [LibraryAccess]
+    [HttpGet("type")]
+    public async Task<ActionResult<LibraryType>> GetLibraryType(int libraryId)
+    {
+        var ct = HttpContext.RequestAborted;
+        return Ok(await unitOfWork.LibraryRepository.GetLibraryTypeAsync(libraryId, ct));
+    }
+}

@@ -1,10 +1,12 @@
-import { MangaFormat } from './manga-format';
-import { Volume } from './volume';
+import {MangaFormat} from './manga-format';
+import {Volume} from './volume';
 import {IHasCover} from "./common/i-has-cover";
 import {IHasReadingTime} from "./common/i-has-reading-time";
 import {IHasProgress} from "./common/i-has-progress";
+import {IHasMetadataIds} from "./common/i-has-metadata-ids";
+import {MetadataProvider} from "./kavitaplus/metadata-provider.enum";
 
-export interface Series extends IHasCover, IHasReadingTime, IHasProgress {
+export interface Series extends IHasCover, IHasReadingTime, IHasProgress, IHasMetadataIds {
   id: number;
   name: string;
   /**
@@ -32,6 +34,7 @@ export interface Series extends IHasCover, IHasReadingTime, IHasProgress {
   userRating: number;
   hasUserRated: boolean;
   libraryId: number;
+  libraryName: string;
   /**
    * DateTime the entity was created
    */
@@ -48,6 +51,10 @@ export interface Series extends IHasCover, IHasReadingTime, IHasProgress {
    * DateTime representing last time a chapter was added to the Series
    */
   lastChapterAdded: string;
+  /**
+   * DateTime representing last time a chapter was added to the Series
+   */
+  lastChapterAddedUtc: string;
   /**
    * DateTime representing last time the series folder was scanned
    */
@@ -79,4 +86,15 @@ export interface Series extends IHasCover, IHasReadingTime, IHasProgress {
    * Kavita+ only. Did this series not match and won't without manual match
    */
   isBlacklisted: boolean;
+  /**
+   * Min number of reads across all chapters
+   */
+  totalReads: number;
+  isStandAlone: boolean;
+  mangaBakaEditionId: string;
+  /**
+   * Overrides the parent Library's default Metadata Provider for this Series only.
+   * Undefined/null means the Series inherits the Library's default provider.
+   */
+  metadataProviderOverride?: MetadataProvider | null;
 }

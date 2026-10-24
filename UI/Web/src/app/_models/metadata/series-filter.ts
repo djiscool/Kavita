@@ -1,5 +1,6 @@
 import {MangaFormat} from "../manga-format";
 import {FilterV2} from "./v2/filter-v2";
+import {allEnums} from "../../_helpers/enum";
 
 export interface FilterItem<T> {
     title: string;
@@ -8,24 +9,27 @@ export interface FilterItem<T> {
 }
 
 
-export enum SortField {
+export enum SeriesSortField {
   SortName = 1,
   Created = 2,
   LastModified = 3,
   LastChapterAdded = 4,
   TimeToRead = 5,
   ReleaseYear = 6,
+  /**
+   * This sorts on the DATE of last progress
+   */
   ReadProgress = 7,
   /**
    * Kavita+ only
    */
   AverageRating = 8,
-  Random = 9
+  Random = 9,
+  UserRating = 10,
+  UnreadChapterCount = 11,
 }
 
-export const allSeriesSortFields = Object.keys(SortField)
-    .filter(key => !isNaN(Number(key)) && parseInt(key, 10) >= 0)
-    .map(key => parseInt(key, 10)) as SortField[];
+export const allSeriesSortFields = allEnums(SeriesSortField);
 
 export const mangaFormatFilters = [
     {

@@ -103,7 +103,7 @@
   }
 
   .ng-autocomplete {
-    margin-bottom: 0px;
+    margin-bottom: 0;
   }
 
   .primary-text {
@@ -111,17 +111,8 @@
     border: none;
   }
 
-  .search-result {
-    width: 1.5rem;
-    margin-top: 0.3125rem;
-  }
-
   .scroll-to-top:hover {
     animation: MoveUpDown 1s linear infinite;
-  }
-
-  .text-light {
-    color: var(--search-result-text-lite-color) !important;
   }
 
 /* small devices (phones, 650px and down) */
@@ -141,4 +132,13 @@
 
 .small-text {
   font-size: 0.8rem;
+}
+
+// Remove any hover code around the dropdown menu
+:host ::ng-deep {
+  .dropdown-toggle:hover, .dropdown-toggle:active, .show {
+    background-color: transparent;
+    border-bottom-color: transparent;
+    box-shadow: none;
+  }
 }

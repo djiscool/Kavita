@@ -1,23 +1,23 @@
 import { Pipe, PipeTransform } from '@angular/core';
 import {DateTime} from "luxon";
+import {translate} from "@jsverse/transloco";
 
 @Pipe({
-  name: 'utcToLocaleDate',
+  name: 'utcToLocalDate',
   standalone: true
 })
 /**
  * This is the same as the UtcToLocalTimePipe but returning a timezone aware DateTime object rather than a string.
  * Use this when the next operation needs a Date object (like the TimeAgoPipe)
  */
-export class UtcToLocaleDatePipe implements PipeTransform {
+export class UtcToLocalDatePipe implements PipeTransform {
 
   transform(utcDate: string | undefined | null): Date | null {
-    if (utcDate === '' || utcDate === null || utcDate === undefined || utcDate.split('T')[0] === '0001-01-01')  {
+    if (utcDate === '' || utcDate === null || utcDate === undefined || utcDate.split('T')[0] === '0001-01-01' || utcDate.split('T')[0] === '9999-12-31') {
       return null;
     }
 
-    const browserLanguage = navigator.language;
-    const dateTime = DateTime.fromISO(utcDate, { zone: 'utc' }).toLocal().setLocale(browserLanguage);
+    const dateTime = DateTime.fromISO(utcDate, { zone: 'utc' }).toLocal();
     return dateTime.toJSDate()
   }
 

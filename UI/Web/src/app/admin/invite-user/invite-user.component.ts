@@ -1,55 +1,94 @@
-import {ChangeDetectorRef, Component, inject, OnInit} from '@angular/core';
-import {FormControl, FormGroup, ReactiveFormsModule, Validators} from '@angular/forms';
+import {ChangeDetectionStrategy, Component, computed, inject, OnInit, signal} from '@angular/core';
 import {NgbActiveModal} from '@ng-bootstrap/ng-bootstrap';
-import {ToastrService} from 'ngx-toastr';
-import {AgeRestriction} from 'src/app/_models/metadata/age-restriction';
-import {InviteUserResponse} from 'src/app/_models/auth/invite-user-response';
-import {Library} from 'src/app/_models/library/library';
-import {AgeRating} from 'src/app/_models/metadata/age-rating';
-import {AccountService} from 'src/app/_services/account.service';
+import {ToastrService} from '@openng/ngx-toastr';
 import {ApiKeyComponent} from '../../user-settings/api-key/api-key.component';
 import {RestrictionSelectorComponent} from '../../user-settings/restriction-selector/restriction-selector.component';
-import {LibrarySelectorComponent} from '../library-selector/library-selector.component';
-import {RoleSelectorComponent} from '../role-selector/role-selector.component';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {SafeHtmlPipe} from "../../_pipes/safe-html.pipe";
+import {LibraryService} from "../../_services/library.service";
+import {
+  MultiCheckBoxItem,
+  SettingMultiCheckBox
+} from "../../settings/_components/setting-multi-check-box/setting-multi-check-box.component";
+import {AccountService, allRoles, Role} from "../../_services/account.service";
+import {AgeRestriction} from "../../_models/metadata/age-restriction";
+import {AgeRating} from "../../_models/metadata/age-rating";
+import {Library} from "../../_models/library/library";
+import {InviteUserResponse} from "../../_models/auth/invite-user-response";
+import {FormFieldDirective} from "../../_directives/form-field.directive";
+import {ValidationErrorsComponent} from "../../shared/_components/validation-errors/validation-errors.component";
+import {form, FormField, required} from "@angular/forms/signals";
+
+interface InviteFormModel {
+  email: string;
+  libraries: number[],
+  roles: Role[]
+}
+
 
 @Component({
-    selector: 'app-invite-user',
-    templateUrl: './invite-user.component.html',
-    styleUrls: ['./invite-user.component.scss'],
-    imports: [ReactiveFormsModule, RoleSelectorComponent, LibrarySelectorComponent, RestrictionSelectorComponent,
-      ApiKeyComponent, TranslocoDirective, SafeHtmlPipe]
+  selector: 'app-invite-user',
+  templateUrl: './invite-user.component.html',
+  styleUrls: ['./invite-user.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RestrictionSelectorComponent, ApiKeyComponent, TranslocoDirective, SafeHtmlPipe,
+    SettingMultiCheckBox, FormFieldDirective, ValidationErrorsComponent, FormField]
 })
 export class InviteUserComponent implements OnInit {
 
-  private readonly cdRef = inject(ChangeDetectorRef);
   private readonly accountService = inject(AccountService);
   private readonly toastr = inject(ToastrService);
   protected readonly modal = inject(NgbActiveModal);
+  private readonly libraryService = inject(LibraryService);
 
   /**
    * Maintains if the backend is sending an email
    */
-  isSending: boolean = false;
-  inviteForm: FormGroup = new FormGroup({});
-  selectedRoles: Array<string> = [];
-  selectedLibraries: Array<number> = [];
+  isSending = signal<boolean>(false);
+
+  private readonly inviteFormModel = signal<InviteFormModel>({
+    email: '',
+    libraries: [],
+    roles: [Role.Login]
+  });
+  inviteForm = form(this.inviteFormModel, (path) => {
+    required(path.email);
+  })
+
   selectedRestriction: AgeRestriction = {ageRating: AgeRating.NotApplicable, includeUnknowns: false};
-  emailLink: string = '';
-  invited: boolean = false;
-  inviteError: boolean = false;
+  emailLink = signal<string>('');
+  invited = signal<boolean>(false);
+  inviteError = signal<boolean>(false);
 
+  libraries = signal<Library[]>([]);
+  libraryOptions = computed<MultiCheckBoxItem<number>[]>(() => this.libraries().map(l => {
+    return { label: l.name, value: l.id };
+  }));
+  roleOptions: MultiCheckBoxItem<Role>[] = allRoles.map(r => {
+    return { label: r, value: r, disableFunc: (r: Role, selected: Role[]) => {
+      return r !== Role.Admin && selected.includes(Role.Admin);
+      }}
+  });
 
-  makeLink: (val: string) => string = (_: string) => {return this.emailLink};
+  readOnlyWarning = computed(() => {
+    const roles = this.inviteForm.roles().value();
+    return roles.includes(Role.ReadOnly)
+      ? translate('edit-user.warning-read-only')
+      : undefined;
+  });
 
-  get hasAdminRoleSelected() { return this.selectedRoles.includes('Admin'); };
+  canSave = computed(() => {
+    return this.isSending() || !this.inviteForm().valid  || this.emailLink() !== '';
+  });
 
-  get email() { return this.inviteForm.get('email'); }
+  hasAdminRoleSelected = computed(() => {
+    return this.inviteForm.roles().value().includes(Role.Admin);
+  });
+
 
 
   ngOnInit(): void {
-    this.inviteForm.addControl('email', new FormControl('', [Validators.required]));
+    this.libraryService.getLibraries().subscribe(libraries => this.libraries.set(libraries));
   }
 
   close() {
@@ -57,23 +96,21 @@ export class InviteUserComponent implements OnInit {
   }
 
   invite() {
-    this.isSending = true;
-    const email = this.inviteForm.get('email')?.value.trim();
+    this.isSending.set(true);
+
+    const email = this.inviteForm.email().value();
+
     this.accountService.inviteUser({
-      email,
-      libraries: this.selectedLibraries,
-      roles: this.selectedRoles,
+      ...this.inviteFormModel(),
       ageRestriction: this.selectedRestriction
     }).subscribe((data: InviteUserResponse) => {
-      this.emailLink = data.emailLink;
-      this.isSending = false;
-      this.invited = true;
-      this.cdRef.markForCheck();
+      this.emailLink.set(data.emailLink);
+      this.isSending.set(false);
+      this.invited.set(true);
 
       if (data.invalidEmail) {
         this.toastr.info(translate('toasts.email-not-sent'));
-        this.inviteError = true;
-        this.cdRef.markForCheck();
+        this.inviteError.set(true);
         return;
       }
 
@@ -84,24 +121,12 @@ export class InviteUserComponent implements OnInit {
 
     }, err => {
       // Note to self: If you need to catch an error, do it, but don't toast because interceptor handles that
-      this.isSending = false;
-      this.cdRef.markForCheck();
+      this.isSending.set(false);
     });
-  }
-
-  updateRoleSelection(roles: Array<string>) {
-    this.selectedRoles = roles;
-    this.cdRef.markForCheck();
-  }
-
-  updateLibrarySelection(libraries: Array<Library>) {
-    this.selectedLibraries = libraries.map(l => l.id);
-    this.cdRef.markForCheck();
   }
 
   updateRestrictionSelection(restriction: AgeRestriction) {
     this.selectedRestriction = restriction;
-    this.cdRef.markForCheck();
   }
 
 }

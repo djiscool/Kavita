@@ -1,257 +1,358 @@
 <div class="main-container container-fluid">
-  <ng-container *transloco="let t; read:'settings'">
+  <ng-container *transloco="let t; prefix:'settings'">
     <app-side-nav-companion-bar>
-      <h2 class="container-fluid" title>
+      <h2 class="container-fluid kv-section-header" title>
         {{fragment | settingFragment}}
       </h2>
     </app-side-nav-companion-bar>
     <div class="container-fluid row col-me-4 pb-3">
 
-      @if (accountService.currentUser$ | async; as user) {
-        @if (accountService.hasAdminRole(user)) {
-          @defer (when fragment === SettingsTabId.General; prefetch on idle) {
-            @if (fragment === SettingsTabId.General) {
+      @let user = accountService.currentUser();
+      @if (user) {
+
+        @switch (fragment) {
+
+          <!-- Admin Tabs -->
+          @case (SettingsTabId.Activity) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="col-xxl-6 col-12">
+                  <app-server-activity />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.AdminDevices) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="col-xxl-12 col-12">
+                  <app-server-devices />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.General) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="col-xxl-6 col-12">
+                  <app-manage-settings />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.OpenIDConnect) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="col-xxl-6 col-12">
+                  <app-manage-open-idconnect />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.Email) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="col-xxl-6 col-12">
+                  <app-manage-email-settings />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.Media) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="col-xxl-6 col-12">
+                  <app-manage-media-settings />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.Users) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-users />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.Libraries) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-library />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.RemapRules) {
+            @defer {
+              <div class="scale col-md-12">
+                <app-manage-remap-rules />
+              </div>
+            }
+          }
+
+          @case (SettingsTabId.ManageMetadata) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-public-metadata-settings />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.MediaIssues) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-media-issues />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.EmailHistory) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-email-history />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.System) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-system />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.Statistics) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-server-stats />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.Tasks) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-tasks-settings />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.KavitaPlusLicense) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-license />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.ManageKavitaPlusActivity) {
+            @if (hasActiveLicense() && accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-kavitaplus-activity />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.MatchedMetadata) {
+            @if (accountService.hasAdminRole() && licenseService.hasActiveLicense()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-matched-metadata />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.ManageUserTokens) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-user-tokens />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.MappingsImport) {
+            @if (accountService.hasAdminRole()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-import-mappings />
+                </div>
+              }
+            }
+          }
+
+          <!-- Kavita+ Tabs (any user, license required) -->
+          @case (SettingsTabId.Scrobbling) {
+            @if (hasActiveLicense()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-scrobling />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.Metadata) {
+            @if (hasActiveLicense()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-manage-metadata-settings />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.ScrobblingHolds) {
+            @if (hasActiveLicense()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-user-holds />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.MyActivity) {
+            @if (hasActiveLicense()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-kavitaplus-activity />
+                </div>
+              }
+            }
+          }
+
+          @case (SettingsTabId.MALStackImport) {
+            @if (hasActiveLicense()) {
+              @defer {
+                <div class="scale col-md-12">
+                  <app-import-mal-collection />
+                </div>
+              }
+            }
+          }
+
+          <!-- User Tabs -->
+          @case (SettingsTabId.Account) {
+            @defer {
               <div class="col-xxl-6 col-12">
-                <app-manage-settings></app-manage-settings>
+                <app-account-settings />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.OpenIDConnect; prefetch on idle) {
-            @if (fragment === SettingsTabId.OpenIDConnect) {
+          @case (SettingsTabId.Preferences) {
+            @defer {
               <div class="col-xxl-6 col-12">
-                <app-manage-open-idconnect></app-manage-open-idconnect>
+                <app-manga-user-preferences />
+              </div>
+            }
+          }
+          @case (SettingsTabId.Connections) {
+            @defer {
+              <div>
+                <app-manage-scrobble-providers />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.Email; prefetch on idle) {
-            @if (fragment === SettingsTabId.Email) {
+          @case (SettingsTabId.CustomKeyBinds) {
+            @defer {
               <div class="col-xxl-6 col-12">
-                <app-manage-email-settings></app-manage-email-settings>
+                <app-manage-custom-key-binds />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.Media; prefetch on idle) {
-            @if (fragment === SettingsTabId.Media) {
-              <div class="col-xxl-6 col-12">
-                <app-manage-media-settings></app-manage-media-settings>
-              </div>
-            }
-          }
-
-          @defer (when fragment === SettingsTabId.Users; prefetch on idle) {
-            @if (fragment === SettingsTabId.Users) {
+          @case (SettingsTabId.Customize) {
+            @defer {
               <div class="scale col-md-12">
-                <app-manage-users></app-manage-users>
+                <app-manage-customization />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.Libraries; prefetch on idle) {
-            @if (fragment === SettingsTabId.Libraries) {
+          @case (SettingsTabId.Clients) {
+            @defer {
               <div class="scale col-md-12">
-                <app-manage-library></app-manage-library>
+                <app-manage-auth-keys />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.ManageMetadata; prefetch on idle) {
-            @if (fragment === SettingsTabId.ManageMetadata) {
+          @case (SettingsTabId.Theme) {
+            @defer {
               <div class="scale col-md-12">
-                <app-manage-public-metadata-settings></app-manage-public-metadata-settings>
+                <app-theme-manager />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.MediaIssues; prefetch on idle) {
-            @if (fragment === SettingsTabId.MediaIssues) {
+          @case (SettingsTabId.Font) {
+            @defer {
               <div class="scale col-md-12">
-                <app-manage-media-issues></app-manage-media-issues>
+                <app-font-manager />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.EmailHistory; prefetch on idle) {
-            @if (fragment === SettingsTabId.EmailHistory) {
+          @case (SettingsTabId.Devices) {
+            @defer {
               <div class="scale col-md-12">
-                <app-email-history></app-email-history>
+                <app-manage-devices />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.System; prefetch on idle) {
-            @if (fragment === SettingsTabId.System) {
+          @case (SettingsTabId.CBLImport) {
+            @defer {
               <div class="scale col-md-12">
-                <app-manage-system></app-manage-system>
+                <app-cbl-manager />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.Statistics; prefetch on idle) {
-            @if (fragment === SettingsTabId.Statistics) {
+
+          @case (SettingsTabId.ReadingProfiles) {
+            @defer {
               <div class="scale col-md-12">
-                <app-server-stats></app-server-stats>
+                <app-manage-reading-profiles />
               </div>
             }
           }
 
-          @defer (when fragment === SettingsTabId.Tasks; prefetch on idle) {
-            @if (fragment === SettingsTabId.Tasks) {
-              <div class="scale col-md-12">
-                <app-manage-tasks-settings></app-manage-tasks-settings>
-              </div>
-            }
-          }
-
-          @defer (when fragment === SettingsTabId.KavitaPlusLicense; prefetch on idle) {
-            @if (fragment === SettingsTabId.KavitaPlusLicense) {
-              <div class="scale col-md-12">
-                <app-license></app-license>
-              </div>
-            }
-          }
-
-          @defer (when fragment === SettingsTabId.MatchedMetadata; prefetch on idle) {
-            @if (fragment === SettingsTabId.MatchedMetadata) {
-              <div class="scale col-md-12">
-                <app-manage-matched-metadata></app-manage-matched-metadata>
-              </div>
-            }
-          }
-
-          @defer (when fragment === SettingsTabId.ManageUserTokens; prefetch on idle) {
-            @if (fragment === SettingsTabId.ManageUserTokens) {
-              <div class="scale col-md-12">
-                <app-manage-user-tokens></app-manage-user-tokens>
-              </div>
-            }
-          }
         }
-
-        @defer (when fragment === SettingsTabId.Scrobbling; prefetch on idle) {
-          @if(hasActiveLicense && fragment === SettingsTabId.Scrobbling) {
-            <div class="scale col-md-12">
-              <app-manage-scrobling></app-manage-scrobling>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.Metadata; prefetch on idle) {
-          @if(hasActiveLicense && fragment === SettingsTabId.Metadata) {
-            <div class="scale col-md-12">
-              <app-manage-metadata-settings></app-manage-metadata-settings>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.ScrobblingHolds; prefetch on idle) {
-          @if(hasActiveLicense && fragment === SettingsTabId.ScrobblingHolds) {
-            <div class="scale col-md-12">
-              <app-user-holds></app-user-holds>
-            </div>
-          }
-        }
-
-
-        @defer (when fragment === SettingsTabId.Account; prefetch on idle) {
-          @if (fragment === SettingsTabId.Account) {
-            <div class="col-xxl-6 col-12">
-              <app-change-email></app-change-email>
-              <div class="setting-section-break"></div>
-              <app-change-password></app-change-password>
-              <div class="setting-section-break"></div>
-              <app-change-age-restriction></app-change-age-restriction>
-              <div class="setting-section-break"></div>
-              <app-manage-scrobbling-providers></app-manage-scrobbling-providers>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.Preferences; prefetch on idle) {
-          @if (fragment === SettingsTabId.Preferences) {
-            <div class="col-xxl-6 col-12">
-              <app-manga-user-preferences></app-manga-user-preferences>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.Customize; prefetch on idle) {
-          @if (fragment === SettingsTabId.Customize) {
-            <div class="scale col-md-12">
-              <app-manage-customization></app-manage-customization>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.Clients; prefetch on idle) {
-          @if (fragment === SettingsTabId.Clients) {
-            <div class="col-xxl-6 col-12">
-              <app-manage-opds></app-manage-opds>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.Theme; prefetch on idle) {
-          @if (fragment === SettingsTabId.Theme) {
-            <div class="scale col-md-12">
-              <app-theme-manager></app-theme-manager>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.Devices; prefetch on idle) {
-          @if (fragment === SettingsTabId.Devices) {
-            <div class="scale col-md-12">
-              <app-manage-devices></app-manage-devices>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.UserStats; prefetch on idle) {
-          @if (fragment === SettingsTabId.UserStats) {
-            <div class="scale col-md-12">
-              <app-user-stats></app-user-stats>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.CBLImport; prefetch on idle) {
-          @if (fragment === SettingsTabId.CBLImport) {
-            <div class="scale col-md-12">
-              <app-import-cbl></app-import-cbl>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.MappingsImport; prefetch on idle) {
-          @if (fragment === SettingsTabId.MappingsImport) {
-            <div class="scale col-md-12">
-              <app-import-mappings></app-import-mappings>
-            </div>
-          }
-        }
-
-
-        @defer (when fragment === SettingsTabId.MALStackImport; prefetch on idle) {
-          @if(hasActiveLicense && fragment === SettingsTabId.MALStackImport) {
-            <div class="scale col-md-12">
-              <app-import-mal-collection></app-import-mal-collection>
-            </div>
-          }
-        }
-
-        @defer (when fragment === SettingsTabId.ReadingProfiles; prefetch on idle) {
-          @if (fragment === SettingsTabId.ReadingProfiles) {
-            <div class="scale col-md-12">
-              <app-manage-reading-profiles></app-manage-reading-profiles>
-            </div>
-          }
-        }
-
       }
     </div>
   </ng-container>
 </div>
-

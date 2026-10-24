@@ -1,0 +1,1358 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Threading.Tasks;
+using Hangfire;
+using Kavita.API.Database;
+using Kavita.API.Repositories;
+using Kavita.API.Services;
+using Kavita.API.Services.Plus;
+using Kavita.API.Services.Reading;
+using Kavita.API.Services.ReadingLists;
+using Kavita.API.Services.Scanner;
+using Kavita.API.Services.SignalR;
+using Kavita.Common;
+using Kavita.Common.Extensions;
+using Kavita.Common.Helpers;
+using Kavita.Database.Extensions;
+using Kavita.Models.Builders;
+using Kavita.Models.DTOs.KavitaPlus.Metadata;
+using Kavita.Models.DTOs.SignalR;
+using Kavita.Models.Entities;
+using Kavita.Models.Entities.Enums;
+using Kavita.Models.Entities.Enums.Audit;
+using Kavita.Models.Entities.Metadata;
+using Kavita.Models.Entities.MetadataMatching;
+using Kavita.Models.Entities.Person;
+using Kavita.Models.Metadata;
+using Kavita.Models.Parser;
+using Kavita.Services.Builders;
+using Kavita.Services.Extensions;
+using Kavita.Services.Helpers;
+using Kavita.Services.Plus;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace Kavita.Services.Scanner;
+
+internal sealed record ProcessParserInfosArgs
+{
+    public required MetadataSettingsDto Settings { get; init; }
+    public required Series Series { get; init; }
+    public required IList<ParserInfo> ParsedInfos { get; init; }
+    public required Dictionary<string, Person> DatabasePeople { get; init; }
+    public KeptFiles Kept { get; init; } = KeptFiles.None;
+    public bool ForceUpdate { get; init; }
+}
+
+internal sealed record UpdateChapterComicInfoArgs
+{
+    public required MetadataSettingsDto Settings { get; init; }
+    public required Chapter Chapter { get; init; }
+    public required ComicInfo? ComicInfo { get; init; }
+    public required Dictionary<string, Person> DatabasePeople { get; init; }
+    public bool ForceUpdate { get; init; } = false;
+    /// <summary>
+    /// The file the ComicInfo came from is new or was read again this pass
+    /// </summary>
+    public bool FileChanged { get; init; }
+}
+
+internal sealed record TemporaryPerson(string Name, string NormalizedName);
+
+internal readonly record struct ChapterChanges(int Added, int Updated, int Removed);
+
+/// <param name="Changed">The file was read again</param>
+/// <param name="ChangedOnDisk">Same as Changed, minus reads that only happened because of a forced scan or a 0 page retry</param>
+internal readonly record struct UpdateChapterResult(MangaFile File, bool Changed, bool ChangedOnDisk);
+
+/// <summary>
+/// All code needed to Update a Series from a Scan action
+/// </summary>
+public class ProcessSeries(
+    IUnitOfWork unitOfWork,
+    ILogger<ProcessSeries> logger,
+    IEventHub eventHub,
+    IDirectoryService directoryService,
+    IReadingItemService readingItemService,
+    IFileService fileService,
+    IReadingListService readingListService,
+    IExternalMetadataService externalMetadataService)
+    : IProcessSeries
+{
+
+    public async Task<ProcessSeriesResult> ProcessSeriesAsync(MetadataSettingsDto settings, IList<ParserInfo> parsedInfos, ProcessSeriesArgs args)
+    {
+        if (!parsedInfos.Any()) return ProcessSeriesResult.NotSaved;
+
+        var library = args.Library;
+
+        var seriesAdded = false;
+        var scanWatch = Stopwatch.StartNew();
+        var stepWatch = Stopwatch.StartNew();
+        var seriesName = parsedInfos[0].Series;
+        await eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
+            MessageFactory.LibraryScanProgressEvent(library.Id, library.Name, ProgressEventType.Updated, seriesName, args.LeftToProcess, args.TotalToProcess, args.SeriesScan));
+        logger.LogInformation("[ScannerService] Beginning series update on {SeriesName}, Forced: {ForceUpdate}", seriesName, args.ForceUpdate);
+
+        // Check if there is a Series
+        var firstInfo = parsedInfos[0];
+        Series? series;
+        try
+        {
+            // There is an opportunity to allow duplicate series here. Like if One is in root/marvel/batman and another is root/dc/batman
+            // by changing to a ToList() and if multiple, doing a firstInfo.FirstFolder/RootFolder type check
+            series =
+                await unitOfWork.SeriesRepository.GetFullSeriesByAnyName(firstInfo.Series, firstInfo.LocalizedSeries,
+                    library.Id, firstInfo.Format);
+        }
+        catch (Exception ex)
+        {
+            await ReportDuplicateSeriesLookup(library, firstInfo, ex);
+            return ProcessSeriesResult.UpdateFailed;
+        }
+
+        if (series == null)
+        {
+            seriesAdded = true;
+            series = new SeriesBuilder(firstInfo.Series)
+                .WithLocalizedName(firstInfo.LocalizedSeries)
+                .Build();
+            unitOfWork.SeriesRepository.Add(series);
+        }
+
+        if (series.LibraryId == 0) series.LibraryId = library.Id;
+        var lookupMs = stepWatch.ElapsedMilliseconds;
+
+        ChapterChanges chapterChanges;
+        try
+        {
+            logger.LogInformation("[ScannerService] Processing series {SeriesName} with {Count} files", series.OriginalName, parsedInfos.Count);
+
+            // parsedInfos[0] is not the first volume or chapter. We need to find it using a ComicInfo check (as it uses firstParsedInfo for series sort)
+            var firstParsedInfo = parsedInfos.FirstOrDefault(p => p.ComicInfo != null, firstInfo);
+            stepWatch.Restart();
+            var databasePeople = await LoadAndCreateMissingChapterPeople(series, parsedInfos);
+            var peopleMs = stepWatch.ElapsedMilliseconds;
+
+            stepWatch.Restart();
+            var fileInfos = parsedInfos.Where(info => !info.IsPlaceholder).ToList();
+            var kept = KeptFiles.From(parsedInfos);
+            // Kept files were not read, so they may carry the LocalizedSeries or SeriesSort
+            var hasReadAllFiles = kept.IsEmpty;
+
+            chapterChanges = await ProcessParserInfos(new ProcessParserInfosArgs
+            {
+                Settings = settings,
+                Series = series,
+                ParsedInfos = fileInfos,
+                DatabasePeople = databasePeople,
+                Kept = kept,
+                ForceUpdate = args.ForceUpdate,
+            });
+            var chaptersMs = stepWatch.ElapsedMilliseconds;
+
+            stepWatch.Restart();
+            series.Pages = series.Volumes.Sum(v => v.Pages);
+
+            series.NormalizedName = series.Name.ToNormalized();
+            series.OriginalName ??= firstParsedInfo.Series;
+            series.NormalizedOriginalName = series.OriginalName.ToNormalized();
+
+            if (series.Format == MangaFormat.Unknown)
+            {
+                series.Format = firstParsedInfo.Format;
+            }
+
+            // parsedInfos[0] is not the first volume or chapter. We need to find it
+            var localizedSeries = parsedInfos.Select(p => p.LocalizedSeries).FirstOrDefault(p => !string.IsNullOrEmpty(p));
+            if (!series.LocalizedNameLocked && (localizedSeries != null || hasReadAllFiles))
+            {
+                series.LocalizedName = localizedSeries ?? string.Empty;
+                series.NormalizedLocalizedName = series.LocalizedName.ToNormalized();
+            }
+
+            // Check if there is a comicvineSeriesId on file
+            var comicVineSeriesIds = parsedInfos.Select(p => p.ComicVineSeriesId).Where(s => !string.IsNullOrEmpty(s)).Distinct().ToList();
+            if (comicVineSeriesIds.Count == 1)
+            {
+                series.ComicVineId =  comicVineSeriesIds[0];
+            }
+
+            await UpdateSeriesMetadata(databasePeople, settings, series, library);
+
+            // After UpdateSeriesMetadata so the language has updated
+            var removePrefix = library.RemovePrefixForSortName;
+            var sortName = removePrefix ? BookSortTitlePrefixHelper.GetSortTitle(series.Name, series.Metadata.Language) : series.Name;
+
+            if (string.IsNullOrEmpty(series.SortName))
+            {
+                series.SortName = sortName;
+            }
+
+            if (!series.SortNameLocked && !string.IsNullOrEmpty(firstParsedInfo.SeriesSort))
+            {
+                series.SortName = firstParsedInfo.SeriesSort;
+            }
+            else if (!series.SortNameLocked && hasReadAllFiles)
+            {
+                series.SortName = sortName;
+            }
+            var metadataMs = stepWatch.ElapsedMilliseconds;
+
+            stepWatch.Restart();
+            await UpdateSeriesFolderPath(
+                [.. fileInfos.Select(info => info.FullFilePath), .. GetKeptFiles(series, kept).Select(f => f.FilePath)],
+                library, series);
+            var folderPathMs = stepWatch.ElapsedMilliseconds;
+
+            series.UpdateLastFolderScanned(args.ScanStarted);
+
+            if (unitOfWork.HasChanges())
+            {
+                long commitMs;
+                try
+                {
+                    stepWatch.Restart();
+                    await unitOfWork.CommitAsync();
+                    commitMs = stepWatch.ElapsedMilliseconds;
+                }
+                catch (DbUpdateConcurrencyException ex)
+                {
+                    #pragma warning disable S6667
+                    logger.LogCritical("[ScannerService] There was an issue writing to the database for series {SeriesName}", series.Name);
+                    #pragma warning restore S6667
+                    logger.LogDbUpdateConcurrencyException(ex);
+                    await eventHub.SendMessageAsync(MessageFactory.Error,
+                        MessageFactory.DbWriteFailedEvent(library.Id, series.Id > 0 ? series.Id : null, series.OriginalName, ex.Message));
+                    return ProcessSeriesResult.UpdateFailed;
+                }
+                catch (Exception ex)
+                {
+                    await unitOfWork.RollbackAsync();
+                    logger.LogCritical(ex,
+                        "[ScannerService] There was an issue writing to the database for series {SeriesName}",
+                        series.Name);
+
+                    await eventHub.SendMessageAsync(MessageFactory.Error,
+                        MessageFactory.DbWriteFailedEvent(library.Id, series.Id > 0 ? series.Id : null, series.OriginalName, ex.Message));
+                    return ProcessSeriesResult.UpdateFailed;
+                }
+
+                stepWatch.Restart();
+                // Process reading list after commit as we need to commit per list
+                if (library.ManageReadingLists)
+                {
+                    await readingListService.CreateReadingListsFromSeries(series, library);
+                }
+
+
+                if (seriesAdded)
+                {
+                    await eventHub.SendMessageAsync(MessageFactory.SeriesAdded,
+                        MessageFactory.SeriesAddedEvent(series.Id, series.Name, series.LibraryId), false);
+                }
+                else
+                {
+                    await unitOfWork.ExternalSeriesMetadataRepository.LinkRecommendationsToSeries(series);
+                }
+                var afterCommitMs = stepWatch.ElapsedMilliseconds;
+
+                logger.LogDebug("[ScannerService] {SeriesName}: lookup {LookupMs} ms, people {PeopleMs} ms, chapters {ChaptersMs} ms ({FileCount} files), " +
+                                "metadata {MetadataMs} ms, folder path {FolderPathMs} ms, commit {CommitMs} ms, after commit {AfterCommitMs} ms",
+                    seriesName, lookupMs, peopleMs, chaptersMs, fileInfos.Count, metadataMs, folderPathMs, commitMs, afterCommitMs);
+                logger.LogInformation("[ScannerService] Finished series update on {SeriesName} in {Milliseconds} ms", seriesName, scanWatch.ElapsedMilliseconds);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[ScannerService] There was an exception updating series for {SeriesName}", series.Name);
+            await eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.SeriesUpdateFailedEvent(library.Id, series.Id > 0 ? series.Id : null, series.Name,
+                    ex is KavitaException ? ex.Message : null));
+            return ProcessSeriesResult.UpdateFailed;
+        }
+
+        if (seriesAdded && library.AllowMetadataMatching)
+        {
+            // I think we can spawn this in a background job? Do we need to enqueue on a specific queue?
+            // All changes to series after this should be page count etc
+            await externalMetadataService.TryMatchAndLoadMetadataForSeries(series.Id, series.Library.Type,
+                MetadataFetchTrigger.SeriesAdded);
+        }
+
+        await eventHub.SendMessageAsync(MessageFactory.ScanSeries,
+            MessageFactory.ScanSeriesEvent(series.LibraryId, series.Id, series.Name), false);
+
+        return new ProcessSeriesResult(series.Id, seriesAdded,
+            chapterChanges.Added, chapterChanges.Updated, chapterChanges.Removed);
+    }
+
+    private async Task ReportDuplicateSeriesLookup(Library library, ParserInfo firstInfo, Exception ex)
+    {
+        // Re-run the same lookup args that GetFullSeriesByAnyName used so the report reflects the real collision set.
+        var seriesCollisions = await unitOfWork.SeriesRepository.GetAllSeriesByAnyNameAsync(
+            firstInfo.Series, firstInfo.LocalizedSeries, library.Id, firstInfo.Format);
+
+        var normalizedSeries = firstInfo.Series.ToNormalized();
+        var normalizedLocalized = firstInfo.LocalizedSeries.ToNormalized();
+
+        if (seriesCollisions.Count == 0)
+        {
+            // The lookup threw but the collision can't be reproduced
+            logger.LogError(ex,
+                "[ScannerService] Series lookup for {SeriesName} (normalized: {NormalizedName}) in Library {LibraryName} returned multiple matches, but the collision could not be reproduced for reporting",
+                firstInfo.Series.Sanitize(), normalizedSeries.Sanitize(), library.Name.Sanitize());
+            return;
+        }
+
+        var rows = string.Join(string.Empty, seriesCollisions.Select(collision =>
+        {
+            var matched = DescribeMatchedFields(collision, normalizedSeries, normalizedLocalized);
+            return "<tr>" +
+                   $"<td>{WebUtility.HtmlEncode(collision.Name)}</td>" +
+                   $"<td>{WebUtility.HtmlEncode(collision.LocalizedName)}</td>" +
+                   $"<td>{WebUtility.HtmlEncode(collision.OriginalName)}</td>" +
+                   $"<td>{WebUtility.HtmlEncode(Parser.NormalizePath(collision.FolderPath))}</td>" +
+                   $"<td>{WebUtility.HtmlEncode(matched)}</td>" +
+                   "</tr>";
+        }));
+
+        var explanation =
+            $"<p>The folder parsed as series <strong>{WebUtility.HtmlEncode(firstInfo.Series)}</strong> " +
+            $"(normalized to <code>{WebUtility.HtmlEncode(normalizedSeries)}</code>) matches {seriesCollisions.Count} " +
+            $"existing series in library <strong>{WebUtility.HtmlEncode(library.Name)}</strong>. " +
+            "Kavita cannot tell which one to update, so this folder was skipped.</p>";
+
+        const string remedy = "<p>To fix this, make the series names unambiguous: rename one of the folders, set a distinct Series or " +
+                              "LocalizedSeries (e.g. via ComicInfo.xml), or lock the series name on the correct entry. Then rescan the library.</p>";
+
+        var htmlTable =
+            "<table class='table table-striped'><thead><tr>" +
+            "<th>Name</th><th>Localized</th><th>Original</th><th>Folder</th><th>Matched On</th>" +
+            $"</tr></thead><tbody>{rows}</tbody></table>";
+
+        logger.LogError(ex,
+            "[ScannerService] Series {SeriesName} (normalized: {NormalizedName}) in Library {LibraryName} collides with {Count} existing series on the same normalized name. This folder was skipped; please disambiguate and rescan",
+            firstInfo.Series.Sanitize(), normalizedSeries.Sanitize(), library.Name.Sanitize(), seriesCollisions.Count);
+
+        await eventHub.SendMessageAsync(MessageFactory.Error,
+            MessageFactory.SeriesCollisionEvent(library.Id, library.Name, firstInfo.Series, explanation + remedy + htmlTable));
+    }
+
+    /// <summary>
+    /// Describes which of a colliding series' normalized columns matched the parsed series/localized name, including
+    /// the normalized value that collided, so the user can see why Kavita treats the entries as the same series.
+    /// </summary>
+    private static string DescribeMatchedFields(Series collision, string normalizedSeries, string normalizedLocalized)
+    {
+        var matches = new List<string>();
+
+        Check("Name", collision.NormalizedName);
+        Check("Localized", collision.NormalizedLocalizedName);
+        Check("Original", collision.NormalizedOriginalName);
+
+        return matches.Count == 0 ? "(normalized variant)" : string.Join(", ", matches);
+
+        void Check(string columnLabel, string? normalizedValue)
+        {
+            if (string.IsNullOrEmpty(normalizedValue)) return;
+            if (normalizedValue == normalizedSeries ||
+                (!string.IsNullOrEmpty(normalizedLocalized) && normalizedValue == normalizedLocalized))
+            {
+                matches.Add($"{columnLabel} = \"{normalizedValue}\"");
+            }
+        }
+    }
+
+
+    private async Task UpdateSeriesFolderPath(IReadOnlyCollection<string> filePaths, Library library, Series series)
+    {
+        var libraryFolders = library.Folders.Select(l => Parser.NormalizePath(l.Path)).ToList();
+        var seriesFiles = filePaths.Select(Parser.NormalizePath).ToList();
+        if (seriesFiles.Count == 0) return;
+
+        var seriesDirs = directoryService.FindHighestDirectoriesFromFiles(libraryFolders, seriesFiles);
+        if (seriesDirs.Keys.Count == 0)
+        {
+            logger.LogCritical(
+                "Scan Series has files spread outside a main series folder. This has negative performance effects. Please ensure all series are under a single folder from library");
+            await eventHub.SendMessageAsync(MessageFactory.Info,
+                MessageFactory.FilesOutsideFolderEvent(library.Id, series.Id > 0 ? series.Id : null, series.Name));
+        }
+        else
+        {
+            // Don't save FolderPath if it's a library Folder
+            if (libraryFolders.Any(seriesDirs.Keys.First().IsInsideFolder))
+            {
+                series.FolderPath = Parser.NormalizePath(seriesDirs.Keys.First());
+                logger.LogDebug("Updating {Series} FolderPath to {FolderPath}", series.Name, series.FolderPath);
+            }
+        }
+
+        var lowestFolder = directoryService.FindLowestDirectoriesFromFiles(libraryFolders, seriesFiles);
+        if (lowestFolder == series.LowestFolderPath) return;
+
+        if (lowestFolder == null)
+        {
+            logger.LogDebug("Clearing {Series} LowestFolderPath {FolderPath}, its files share no folder below the library root",
+                series.Name, series.LowestFolderPath);
+        }
+        else
+        {
+            logger.LogDebug("Updating {Series} LowestFolderPath to {FolderPath}", series.Name, lowestFolder);
+        }
+
+        series.LowestFolderPath = lowestFolder;
+    }
+
+
+    private async Task UpdateSeriesMetadata(Dictionary<string, Person> databasePeople, MetadataSettingsDto settings, Series series, Library library)
+    {
+        series.Metadata ??= new SeriesMetadataBuilder().Build();
+        var firstChapter = SeriesService.GetFirstChapterForMetadata(series);
+
+        var firstFile = firstChapter?.Files.FirstOrDefault();
+        if (firstFile == null) return;
+
+        var chapters = series.Volumes
+            .SelectMany(volume => volume.Chapters)
+            .ToList();
+
+        // Update Metadata based on Chapter metadata
+        if (!series.Metadata.ReleaseYearLocked)
+        {
+            series.Metadata.ReleaseYear = chapters.MinimumReleaseYear();
+        }
+
+        if (!series.Metadata.PublicationStatusLocked)
+        {
+            DeterminePublicationStatus(series, chapters);
+        }
+        else
+        {
+            TryUpdatePublicationStatus(series, chapters);
+        }
+
+        if (!series.Metadata.SummaryLocked)
+        {
+            series.Metadata.Summary = firstChapter?.Summary ?? string.Empty;
+        }
+
+        if (!series.Metadata.LanguageLocked)
+        {
+            if (!string.IsNullOrEmpty(firstChapter?.Language))
+            {
+                series.Metadata.Language = firstChapter.Language;
+            }
+            else if (!string.IsNullOrEmpty(library.DefaultLanguage))
+            {
+                series.Metadata.Language = library.DefaultLanguage;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(firstChapter?.WebLinks) && library.InheritWebLinksFromFirstChapter)
+        {
+            series.Metadata.WebLinks = firstChapter.WebLinks;
+            var aniListId = ExternalIdParser.GetAniListId(series.Metadata.WebLinks);
+            if (aniListId.HasValue)
+                series.AniListId = aniListId.Value;
+
+            var malId = ExternalIdParser.GetMalId(series.Metadata.WebLinks);
+            if (malId.HasValue)
+                series.MalId = malId.Value;
+
+            var (comicVineId, isSeriesLink) = ExternalIdParser.GetComicVineId(series.Metadata.WebLinks);
+            if (comicVineId != null && isSeriesLink)
+            {
+                series.ComicVineId = comicVineId;
+            }
+
+            var mangaBakaId = ExternalIdParser.GetMangaBakaId(series.Metadata.WebLinks);
+            if (mangaBakaId > 0)
+                series.MangaBakaId = mangaBakaId;
+
+            var hardcoverId = ExternalIdParser.GetHardcoverSeriesId(series.Metadata.WebLinks);
+            if (hardcoverId > 0)
+                series.HardcoverId = hardcoverId;
+        }
+
+        if (!string.IsNullOrEmpty(firstChapter?.SeriesGroup) && library.ManageCollections)
+        {
+            await UpdateCollectionTags(series, firstChapter);
+        }
+
+        #region PeopleAndTagsAndGenres
+
+        foreach (var personRole in Enum.GetValues<PersonRole>())
+        {
+            if (series.Metadata.IsPersonRoleLocked(personRole)) continue;
+
+            var chapterPeople = chapters
+                .SelectMany(c => c.People.Where(p => p.Role == personRole)).ToList();
+
+            if (!ShouldUpdatePeopleForRole(series, chapterPeople, personRole)) continue;
+
+            PersonHelper.UpdateSeriesMetadataPeople(databasePeople, series.Metadata, chapterPeople, personRole);
+        }
+
+        if (!series.Metadata.TagsLocked)
+        {
+            var tags = chapters.SelectMany(c => c.Tags).ToList();
+            UpdateSeriesMetadataTags(series.Metadata.Tags, tags);
+        }
+
+        if (!series.Metadata.GenresLocked)
+        {
+            var genres = chapters.SelectMany(c => c.Genres).ToList();
+            UpdateSeriesMetadataGenres(series.Metadata.Genres, genres);
+        }
+
+        #endregion
+
+        // Set the AgeRating as highest in all the comicInfos
+        if (!series.Metadata.AgeRatingLocked)
+        {
+            series.Metadata.AgeRating = chapters.Max(chapter => chapter.AgeRating);
+
+            if (settings.EnableExtendedMetadataProcessing)
+            {
+                var allTags = series.Metadata.Tags.Select(t => t.Title).Concat(series.Metadata.Genres.Select(g => g.Title));
+                var updatedRating = ExternalMetadataService.DetermineAgeRating(allTags, settings.AgeRatingMappings);
+                if (updatedRating > series.Metadata.AgeRating)
+                {
+                    series.Metadata.AgeRating = updatedRating;
+                }
+            }
+
+        }
+
+    }
+
+    /// <summary>
+    /// Ensure that we don't overwrite Person metadata when all metadata is coming from Kavita+ metadata match functionality
+    /// </summary>
+    /// <param name="series"></param>
+    /// <param name="chapterPeople"></param>
+    /// <param name="role"></param>
+    /// <returns></returns>
+    private static bool ShouldUpdatePeopleForRole(Series series, List<ChapterPeople> chapterPeople, PersonRole role)
+    {
+        if (chapterPeople.Count == 0) return true;
+
+        // If metadata already has this role, but all entries are from KavitaPlus, we should retain them
+        if (series.Metadata.AnyOfRole(role))
+        {
+            var existingPeople = series.Metadata.People.Where(p => p.Role == role);
+
+            // If all existing people are KavitaPlus but new chapter people exist, we should still update
+            if (existingPeople.All(p => p.KavitaPlusConnection))
+            {
+                return false; // Ensure we don't remove KavitaPlus people
+            }
+
+            return true; // Default case: metadata exists, and it's okay to update
+        }
+
+        return true;
+    }
+
+    private async Task UpdateCollectionTags(Series series, Chapter firstChapter)
+    {
+        // Get the default admin to associate these tags to
+        var defaultAdmin = await unitOfWork.UserRepository.GetDefaultAdminUser(AppUserIncludes.Collections);
+        if (defaultAdmin == null) return;
+
+        logger.LogInformation("Collection tag(s) found for {SeriesName}, updating collections", series.Name);
+        var sw = Stopwatch.StartNew();
+
+        foreach (var collection in firstChapter.SeriesGroup.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            // Try to find an existing collection tag by its normalized name
+            var normalizedCollectionName = collection.ToNormalized();
+            var collectionTag = defaultAdmin.Collections.FirstOrDefault(c => c.NormalizedTitle == normalizedCollectionName);
+
+            // If the collection tag does not exist, create a new one
+            if (collectionTag == null)
+            {
+                logger.LogDebug("Creating new collection tag for {Tag}", collection);
+
+                collectionTag = new AppUserCollectionBuilder(collection).Build();
+                defaultAdmin.Collections.Add(collectionTag);
+
+                unitOfWork.UserRepository.Update(defaultAdmin);
+
+                await unitOfWork.CommitAsync();
+            }
+
+            // Check if the Series is already associated with this collection
+            if (collectionTag.Items.Any(s => s.MatchesSeriesByName(series.NormalizedName, series.NormalizedLocalizedName)))
+            {
+                continue;
+            }
+
+            // Add the series to the collection tag
+            collectionTag.Items.Add(series);
+
+            // Update the collection age rating
+            await unitOfWork.CollectionTagRepository.UpdateCollectionAgeRating(collectionTag);
+        }
+
+        logger.LogTrace("[TIME] Kavita took {Time} ms to process collections on Series: {Name}", sw.ElapsedMilliseconds, series.Name);
+    }
+
+
+    public static void UpdateSeriesMetadataTags(ICollection<Tag> metadataTags, IList<Tag> chapterTags)
+    {
+        // Create a HashSet of normalized titles for faster lookups
+        var chapterTagTitles = new HashSet<string>(chapterTags.Select(t => t.NormalizedTitle));
+
+        // Remove any tags from metadataTags that are not part of chapterTags
+        var tagsToRemove = metadataTags
+            .Where(mt => !chapterTagTitles.Contains(mt.NormalizedTitle))
+            .ToList();
+
+        if (tagsToRemove.Count > 0)
+        {
+            foreach (var tagToRemove in tagsToRemove)
+            {
+                metadataTags.Remove(tagToRemove);
+            }
+        }
+
+        // Create a HashSet of metadataTags normalized titles for faster lookup
+        var metadataTagTitles = new HashSet<string>(metadataTags.Select(mt => mt.NormalizedTitle));
+
+        // Add any tags from chapterTags that do not already exist in metadataTags
+        foreach (var tag in chapterTags.Where(tag => !metadataTagTitles.Contains(tag.NormalizedTitle)))
+        {
+            metadataTags.Add(tag);
+        }
+    }
+
+    public static void UpdateSeriesMetadataGenres(ICollection<Genre> metadataGenres, IList<Genre> chapterGenres)
+    {
+        // Create a HashSet of normalized titles for chapterGenres for fast lookup
+        var chapterGenreTitles = new HashSet<string>(chapterGenres.Select(g => g.NormalizedTitle));
+
+        // Remove any genres from metadataGenres that are not present in chapterGenres
+        var genresToRemove = metadataGenres
+            .Where(mg => !chapterGenreTitles.Contains(mg.NormalizedTitle))
+            .ToList();
+
+        foreach (var genreToRemove in genresToRemove)
+        {
+            metadataGenres.Remove(genreToRemove);
+        }
+
+        // Create a HashSet of metadataGenres normalized titles for fast lookup
+        var metadataGenreTitles = new HashSet<string>(metadataGenres.Select(mg => mg.NormalizedTitle));
+
+        // Add any genres from chapterGenres that are not already in metadataGenres
+        foreach (var genre in chapterGenres.Where(genre => !metadataGenreTitles.Contains(genre.NormalizedTitle)))
+        {
+            metadataGenres.Add(genre);
+        }
+    }
+
+    /// <summary>
+    /// Sets <see cref="SeriesMetadata.PublicationStatus"/>, <see cref="SeriesMetadata.MaxCount"/>, and <see cref="SeriesMetadata.TotalCount"/>
+    /// Only call if <see cref="SeriesMetadata.PublicationStatusLocked"/> is false
+    /// </summary>
+    /// <param name="series"></param>
+    /// <param name="chapters"></param>
+    private void DeterminePublicationStatus(Series series, List<Chapter> chapters)
+    {
+        try
+        {
+            // Count (aka expected total number of chapters or volumes from metadata) across all chapters
+            series.Metadata.TotalCount = chapters.Max(chapter => chapter.TotalCount);
+            // The actual number of count's defined across all chapter's metadata
+            series.Metadata.MaxCount = chapters.Max(chapter => chapter.Count);
+
+            var nonSpecialVolumes = series.Volumes
+                .Where(v => v.MaxNumber.IsNot(Parser.SpecialVolumeNumber))
+                .ToList();
+
+            var maxVolume = (int)(nonSpecialVolumes.Any() ? nonSpecialVolumes.Max(v => v.MaxNumber) : 0);
+            var maxChapter = (int)chapters.Max(c => c.MaxNumber);
+
+            // Single books usually don't have a number in their Range (filename)
+            if (series.Format is MangaFormat.Epub or MangaFormat.Pdf && chapters.Count == 1)
+            {
+                series.Metadata.MaxCount = 1;
+            }
+            else if (series.Metadata.TotalCount <= 1 && chapters is [{IsSpecial: true}])
+            {
+                // If a series has a TotalCount of 1 (or no total count) and there is only a Special, mark it as Complete
+                series.Metadata.MaxCount = series.Metadata.TotalCount;
+            }
+            else if ((maxChapter == Parser.DefaultChapterNumber || maxChapter > series.Metadata.TotalCount) &&
+                     maxVolume <= series.Metadata.TotalCount)
+            {
+                series.Metadata.MaxCount = maxVolume;
+            }
+            else if (maxVolume == series.Metadata.TotalCount)
+            {
+                series.Metadata.MaxCount = maxVolume;
+            }
+            else
+            {
+                series.Metadata.MaxCount = maxChapter;
+            }
+
+            series.Metadata.PublicationStatus = PublicationStatus.OnGoing;
+            if (series.Metadata.MaxCount == series.Metadata.TotalCount && series.Metadata.TotalCount > 0)
+            {
+                series.Metadata.PublicationStatus = PublicationStatus.Completed;
+            }
+            else if (series.Metadata.TotalCount > 0 && series.Metadata.MaxCount > 0)
+            {
+                series.Metadata.PublicationStatus = PublicationStatus.Ended;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogCritical(ex, "There was an issue determining Publication Status");
+            series.Metadata.PublicationStatus = PublicationStatus.OnGoing;
+        }
+    }
+
+    /// <summary>
+    /// Updates publication status if new info (added chapters) would update the info. Only does anything if <see cref="SeriesMetadata.TotalCount"/>
+    /// is set and K+ own the field
+    /// </summary>
+    /// <param name="series"></param>
+    /// <param name="chapters"></param>
+    private static void TryUpdatePublicationStatus(Series series, List<Chapter> chapters)
+    {
+        if (series.Metadata.TotalCount == 0 ||
+            !series.Metadata.HasSetKPlusMetadata(MetadataSettingField.PublicationStatus))
+        {
+            return;
+        }
+
+        // K+ owns the field, so we are free to use the same counting method and update if possible
+        // Keep in mind that this updating is less smart as we no longer have access to the expected count from upstream
+
+        var (maxChapter, maxVolume, isVolumeBased) = ExternalMetadataService.CountVolumesAndChapters(series, chapters);
+        series.Metadata.MaxCount = isVolumeBased ? maxVolume : maxChapter;
+        if (series.Metadata.MaxCount >= series.Metadata.TotalCount)
+        {
+            series.Metadata.PublicationStatus = PublicationStatus.Completed;
+        }
+    }
+
+    /// <summary>
+    /// Matches each parsed file to a volume and chapter of the series, creating them when none fits, then removes
+    /// the volumes, chapters and files that no parsed file matched
+    /// </summary>
+    /// <remarks>
+    /// Only files read this scan are in <see cref="ProcessParserInfosArgs.ParsedInfos"/>. Kept files were not looked at,
+    /// so they and their chapters are kept as they are (unverifiedFileIds).
+    /// </remarks>
+    private async Task<ChapterChanges> ProcessParserInfos(ProcessParserInfosArgs args)
+    {
+        var foundVolumes = new HashSet<Volume>();
+        var foundChapters = new HashSet<Chapter>();
+        var foundMangaFiles = new HashSet<MangaFile>();
+        var addedChapters = new HashSet<Chapter>();
+        var changedChapters = new HashSet<Chapter>();
+
+        var unverifiedFileIds = GetKeptFiles(args.Series, args.Kept)
+            .Select(f => f.Id)
+            .ToHashSet();
+        var keptVolumeNames = args.Series.Volumes
+            .Where(v => v.Chapters.Any(c => c.Files.Any(f => unverifiedFileIds.Contains(f.Id))))
+            .Select(v => v.LookupName);
+        var ranges = new RangeIndex(args.ParsedInfos, keptVolumeNames);
+
+        foreach (var parsedInfo in args.ParsedInfos)
+        {
+            var volume = FindOrCreateVolume(args, ranges, parsedInfo);
+            var chapter = FindOrCreateChapter(args, ranges, unverifiedFileIds, parsedInfo);
+
+            if (chapter.Id == 0)
+            {
+                addedChapters.Add(chapter);
+            }
+
+            if (chapter.VolumeId == 0 || chapter.VolumeId != volume.Id)
+            {
+                logger.LogTrace("Chapter {ChapterId} is being assign or switching volumes. From {From} to {To}", chapter.Id, chapter.VolumeId, volume.Id);
+
+                // Remove from old chapter if exists, then add to new one
+                chapter.Volume?.Chapters.Remove(chapter);
+                volume.Chapters.Add(chapter);
+                chapter.Volume = volume;
+            }
+
+            var fileResult = AddOrUpdateFileForChapter(chapter, parsedInfo, args.ForceUpdate);
+
+            await UpdateChapter(args, chapter, parsedInfo, fileResult.Changed);
+            if (fileResult.ChangedOnDisk)
+            {
+                changedChapters.Add(chapter);
+            }
+
+            // UpdateChapters may commit, we track the entities and collect the ids later
+            foundVolumes.Add(volume);
+            foundChapters.Add(chapter);
+            foundMangaFiles.Add(fileResult.File);
+        }
+
+        var mangaFileIds = foundMangaFiles.Select(m => m.Id).ToHashSet();
+        var volumeIds  = foundVolumes.Select(v => v.Id).ToHashSet();
+        var chapterIds = foundChapters.Select(c => c.Id).ToHashSet();
+
+        // Remove volumes and chapter that did not match any files on disk
+        var removedChapters = RemoveUnmappedEntities(args.Series, volumeIds, chapterIds, unverifiedFileIds);
+
+        // Update page count once all pages have been processed
+        foreach (var volume in args.Series.Volumes)
+        {
+            foreach (var chapter in volume.Chapters)
+            {
+                var droppedFiles = chapter.Files
+                    .Where(f => !mangaFileIds.Contains(f.Id) && !unverifiedFileIds.Contains(f.Id))
+                    .ToList();
+                if (droppedFiles.Count > 0)
+                {
+                    logger.LogDebug("Removing {Count} files from chapter {ChapterId} [{Range}] for {SeriesName} ({SeriesId}): {FilePaths}",
+                        droppedFiles.Count, chapter.Id, chapter.Range, args.Series.Name, args.Series.Id,
+                        string.Join(", ", droppedFiles.Select(f => f.FilePath)));
+                }
+
+                chapter.Files = [.. chapter.Files.Where(f => mangaFileIds.Contains(f.Id) || unverifiedFileIds.Contains(f.Id))];
+                chapter.Pages = chapter.Files.Sum(f => f.Pages);
+            }
+
+            volume.Pages = volume.Chapters.Sum(chapter => chapter.Pages);
+        }
+
+        return new ChapterChanges(addedChapters.Count, changedChapters.Except(addedChapters).Count(), removedChapters);
+    }
+
+    private int RemoveUnmappedEntities(Series series, HashSet<int> foundVolumes, HashSet<int> foundChapters,
+        HashSet<int> unverifiedFileIds)
+    {
+        var unmappedVolumes = series.Volumes
+            .Where(v => !foundVolumes.Contains(v.Id) && !HasUnverifiedFile(v.Chapters.SelectMany(c => c.Files)))
+            .ToList();
+        var unmappedChapters = series.Volumes
+            .SelectMany(v => v.Chapters)
+            .Where(c => !foundChapters.Contains(c.Id) && !HasUnverifiedFile(c.Files))
+            .ToList();
+
+        var keptUnverifiedChapters = series.Volumes
+            .SelectMany(v => v.Chapters)
+            .Count(c => !foundChapters.Contains(c.Id) && HasUnverifiedFile(c.Files));
+
+        if (keptUnverifiedChapters > 0)
+        {
+            logger.LogTrace("Keeping {Count} chapters for {SeriesId} as their files are in folders that were skipped this scan",
+                keptUnverifiedChapters, series.Id);
+        }
+
+        if (unmappedVolumes.Count == 0 && unmappedChapters.Count == 0)
+        {
+            logger.LogTrace("No volumes, chapters, or files to delete for {SeriesId}", series.Id);
+            return 0;
+        }
+
+        if (unmappedVolumes.Count > 0)
+        {
+            logger.LogDebug("Deleting {Count} volumes for {SeriesName} ({SeriesId}): {Volumes}",
+                unmappedVolumes.Count, series.Name, series.Id,
+                string.Join("; ", unmappedVolumes.Select(v => $"{v.Id} [{v.Name}]")));
+            unitOfWork.VolumeRepository.Remove(unmappedVolumes);
+
+            series.Volumes = [.. series.Volumes.Where(v => !unmappedVolumes.Contains(v))];
+        }
+
+        if (unmappedChapters.Count > 0)
+        {
+            logger.LogDebug("Deleting {Count} chapters for {SeriesName} ({SeriesId}): {Chapters}",
+                unmappedChapters.Count, series.Name, series.Id,
+                string.Join("; ", unmappedChapters.Select(c =>
+                    $"{c.Id} [{c.Range}] {string.Join(", ", c.Files.Select(f => f.FilePath))}")));
+            unitOfWork.ChapterRepository.Remove(unmappedChapters);
+
+            foreach (var volume in series.Volumes)
+            {
+                volume.Chapters = [.. volume.Chapters.Where(c => !unmappedChapters.Contains(c))];
+            }
+        }
+
+        return unmappedChapters.Count;
+
+        bool HasUnverifiedFile(IEnumerable<MangaFile> files) => files.Any(f => unverifiedFileIds.Contains(f.Id));
+    }
+
+    private static IEnumerable<MangaFile> GetKeptFiles(Series series, KeptFiles kept)
+    {
+        return series.Volumes
+            .SelectMany(v => v.Chapters)
+            .SelectMany(c => c.Files)
+            .Where(f => kept.Contains(f.FilePath));
+    }
+
+    private Volume FindOrCreateVolume(ProcessParserInfosArgs args, RangeIndex ranges, ParserInfo info)
+    {
+        var volumeNumber = ranges.VolumeLookupName(info.Volumes);
+
+        Volume? volume;
+        try
+        {
+            volume = args.Series.Volumes.SingleOrDefault(v => v.LookupName == volumeNumber);
+        }
+        catch (InvalidOperationException ex)
+        {
+            if (!ex.Message.Equals("Sequence contains more than one matching element")) throw;
+
+            logger.LogCritical(ex, "[ScannerService] Kavita found corrupted volume entries on {SeriesName}. Please delete the series from Kavita via UI and rescan", args.Series.Name);
+            throw new KavitaException($"Kavita found corrupted volume entries on {args.Series.Name}. Please delete the series from Kavita via UI and rescan");
+        }
+
+        if (volume == null)
+        {
+            logger.LogDebug("Creating new volume {VolumeNumber} for series {SeriesId}", volumeNumber,  args.Series.Name);
+            volume = new VolumeBuilder(volumeNumber).WithSeriesId(args.Series.Id).Build();
+            args.Series.Volumes.Add(volume);
+            unitOfWork.VolumeRepository.Add(volume);
+        }
+
+        volume.LookupName = volumeNumber;
+        volume.Name = volume.GetNumberTitle();
+
+        return volume;
+    }
+
+    private Chapter FindOrCreateChapter(ProcessParserInfosArgs args, RangeIndex ranges, HashSet<int> unverifiedFileIds,
+        ParserInfo info)
+    {
+        var lookupVolume = ranges.VolumeLookupName(info.Volumes);
+
+        var volume = args.Series.Volumes.OneOrDefault(v => v.LookupName == lookupVolume);
+        var exactChapterMatch = volume?.Chapters.GetChapterByRange(info);
+        if (exactChapterMatch != null)
+        {
+            // This is the old matching. On Volume & Chapter
+            logger.LogTrace("Matched on disk file {DebugInfo} to Volume {Volume} Chapter {Chapter} for series {SeriesId}",
+                info.DebugString, exactChapterMatch.Volume.Name, exactChapterMatch.Range, args.Series.Id);
+            return exactChapterMatch;
+        }
+
+        var filesMatchingOnVolume = ranges.FilesMatchingVolume(info.Volumes);
+
+        // Don't use volume if any files are unchanged
+        var volumeFullyRead = volume?.Chapters.All(c => c.Files.All(f => !unverifiedFileIds.Contains(f.Id))) ?? true;
+
+        if (volume?.Chapters.Count == 1 && filesMatchingOnVolume == 1 && volumeFullyRead)
+        {
+            var match = volume.Chapters[0];
+
+            // There is one matched volume, and only one file on disk mapping to it (I.e. only chapters changed)
+            logger.LogTrace("Matched on disk file {DebugInfo} to Volume {Volume} Chapter {Chapter} for series {SeriesId}. Only one matching volume was found, will be updating chapter range",
+                info.DebugString, match.Volume.Name, match.Range, args.Series.Id);
+            return match;
+        }
+
+        var matchingChapter = args.Series.Volumes
+            .SelectMany(v => v.Chapters)
+            .Where(c => c.Files.All(f => !unverifiedFileIds.Contains(f.Id)))
+            .GetChaptersByRange(info)
+            .OneOrDefault();
+        var filesMatchingOnChapter = ranges.FilesMatchingChapter(info.Chapters);
+
+        if (matchingChapter != null && filesMatchingOnChapter == 1)
+        {
+            // There is exactly one chapter that matches the range in DB & on disk (I.e. Only volume changed)
+            logger.LogTrace("Matched on disk file {DebugInfo} to Volume {Volume} Chapter {Chapter} for series {SeriesId}. Only one matching chapter range was found, will be updating volume",
+                info.DebugString, matchingChapter.Volume.Name, matchingChapter.Range, args.Series.Id);
+            return matchingChapter;
+        }
+
+        logger.LogDebug("[ScannerService] Adding new chapter, {Series} - Vol {Volume} Ch {Chapter}", info.Series, info.Volumes, info.Chapters);
+
+        args.Series.UpdateLastChapterAdded();
+
+        var chapter = ChapterBuilder.FromParserInfo(info).Build();
+        return chapter;
+    }
+
+    /// <summary>
+    /// The volume and chapter numbers of one series' parsed files, each distinct text parsed once
+    /// </summary>
+    private sealed class RangeIndex
+    {
+        private readonly record struct NumberRange(float Min, float Max);
+        private readonly record struct RangeCount(NumberRange Range, int Count);
+
+        private readonly Dictionary<string, NumberRange> _parsed = [];
+        private readonly Dictionary<string, string> _volumeLookupNames = [];
+        private readonly List<RangeCount> _volumeCounts;
+        private readonly List<RangeCount> _chapterCounts;
+
+        /// <param name="keptVolumeNames">Lookup names of volumes holding kept files</param>
+        public RangeIndex(IList<ParserInfo> infos, IEnumerable<string> keptVolumeNames)
+        {
+            // Volumes are found by LookupName text, so files saying "1", "01" and "1.0" must agree on one text
+            // or each would get its own volume 1. The shortest is the one kept
+            var shortestSpellings = new Dictionary<NumberRange, string>();
+            var volumeCounts = new Dictionary<NumberRange, int>();
+            var chapterCounts = new Dictionary<NumberRange, int>();
+
+            foreach (var info in infos)
+            {
+                var volume = Parse(info.Volumes);
+                if (!shortestSpellings.TryGetValue(volume, out var shortest) || info.Volumes.Length < shortest.Length)
+                {
+                    shortestSpellings[volume] = info.Volumes;
+                }
+
+                volumeCounts[volume] = volumeCounts.GetValueOrDefault(volume) + 1;
+
+                var chapter = Parse(info.Chapters);
+                chapterCounts[chapter] = chapterCounts.GetValueOrDefault(chapter) + 1;
+            }
+
+            // A kept file's chapter is not moved, so a parsed file joins its volume under the name it already has
+            foreach (var name in keptVolumeNames)
+            {
+                var volume = Parse(name);
+                if (shortestSpellings.ContainsKey(volume))
+                {
+                    shortestSpellings[volume] = name;
+                }
+            }
+
+            foreach (var volumes in infos.Select(info => info.Volumes))
+            {
+                _volumeLookupNames[volumes] = shortestSpellings[_parsed[volumes]];
+            }
+
+            _volumeCounts = [.. volumeCounts.Select(kv => new RangeCount(kv.Key, kv.Value))];
+            _chapterCounts = [.. chapterCounts.Select(kv => new RangeCount(kv.Key, kv.Value))];
+        }
+
+        /// <summary>
+        /// The shortest spelling among the files whose volume is the same number, so "1" and "1.0" both give "1".
+        /// A volume holding kept files keeps its own spelling
+        /// </summary>
+        public string VolumeLookupName(string volumes) => _volumeLookupNames[volumes];
+
+        public int FilesMatchingVolume(string volumes) => CountMatching(_volumeCounts, _parsed[volumes]);
+
+        public int FilesMatchingChapter(string chapters) => CountMatching(_chapterCounts, _parsed[chapters]);
+
+        // Compares with Is (0.001 tolerance) while the lookup name groups on exact numbers, as before
+        private static int CountMatching(List<RangeCount> counts, NumberRange target)
+        {
+            return counts
+                .Where(count => count.Range.Min.Is(target.Min) && count.Range.Max.Is(target.Max))
+                .Sum(count => count.Count);
+        }
+
+        private NumberRange Parse(string range)
+        {
+            if (_parsed.TryGetValue(range, out var parsed)) return parsed;
+
+            parsed = new NumberRange(Parser.MinNumberFromRange(range), Parser.MaxNumberFromRange(range));
+            _parsed[range] = parsed;
+            return parsed;
+        }
+    }
+
+    private async Task UpdateChapter(ProcessParserInfosArgs args, Chapter chapter, ParserInfo info, bool fileChanged)
+    {
+        chapter.UpdateFrom(info);
+
+        chapter.Number = info.LowestChapter.ToString(CultureInfo.InvariantCulture);
+        chapter.MinNumber = info.LowestChapter;
+        chapter.MaxNumber = info.HighestChapter;
+        chapter.Range = chapter.GetNumberTitle();
+
+        if (!chapter.SortOrderLocked)
+        {
+            chapter.SortOrder = info.IssueOrder;
+        }
+
+        if (float.TryParse(chapter.Title, CultureInfo.InvariantCulture, out _))
+        {
+            // If we have float based chapters, first scan can have the chapter formatted as Chapter 0.2 - .2 as the title is wrong.
+            chapter.Title = chapter.GetNumberTitle();
+        }
+
+        // When setting TotalCount, we need to check against EndMarker and ComicInfo
+        var totalCount = ParsedCountHelper.GetTotalCount(info);
+        if (totalCount > 0)
+        {
+            chapter.TotalCount = totalCount.Value;
+        }
+
+        // This needs to check against both Number and Volume to calculate Count
+        chapter.Count = ParsedCountHelper.GetCalculatedCount(info);
+
+        try
+        {
+            await UpdateChapterFromComicInfo(new UpdateChapterComicInfoArgs
+            {
+                Settings = args.Settings,
+                Chapter = chapter,
+                ComicInfo = info.ComicInfo,
+                DatabasePeople = args.DatabasePeople,
+                ForceUpdate = args.ForceUpdate,
+                FileChanged = fileChanged,
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "There was some issue when updating chapter's metadata");
+        }
+
+        // Try to patch in any External Metadata Ids we've seen during parsing
+        if (info.AniListId is > 0)
+        {
+            chapter.AniListId = info.AniListId ?? 0;
+        }
+        if (info.MalId is > 0)
+        {
+            chapter.MalId = info.MalId ?? 0;
+        }
+        if (info.MangaBakaId is > 0)
+        {
+            chapter.MangaBakaId = info.MangaBakaId ?? 0;
+        }
+        if (info.MetronId is > 0)
+        {
+            chapter.MetronId = info.MetronId ?? 0;
+        }
+        if (!string.IsNullOrEmpty(info.ComicVineId))
+        {
+            chapter.ComicVineId = info.ComicVineId;
+        }
+        if (info.HardcoverId is > 0)
+        {
+            chapter.HardcoverId = info.HardcoverId ?? 0;
+        }
+    }
+
+    private UpdateChapterResult AddOrUpdateFileForChapter(Chapter chapter, ParserInfo info, bool forceUpdate = false)
+    {
+        chapter.Files ??= [];
+        var existingFile = chapter.Files.SingleOrDefault(f => f.FilePath == info.FullFilePath);
+        var stamp = info.Stamp ?? throw new InvalidOperationException($"{info.FullFilePath} has no stamp from the folder listing");
+        var extension = Path.GetExtension(info.FullFilePath).ToLowerInvariant();
+        if (existingFile != null)
+        {
+            existingFile.Format = info.Format;
+
+            var changedOnDisk = HasFileChanged(existingFile, stamp);
+            if (!forceUpdate && existingFile.Pages != 0 && !changedOnDisk)
+            {
+                return new UpdateChapterResult(existingFile, false, false);
+            }
+
+            existingFile.Pages = readingItemService.GetNumberOfPages(info.FullFilePath, info.Format);
+            existingFile.Extension = extension;
+            existingFile.FileName = Parser.RemoveExtensionIfSupported(existingFile.FilePath);
+            existingFile.FilePath = Parser.NormalizePath(existingFile.FilePath);
+            existingFile.Bytes = stamp.Bytes;
+            existingFile.FileLastWriteTimeUtc = stamp.LastWriteTimeUtc;
+            existingFile.KoreaderHash = KoreaderHelper.HashContents(existingFile.FilePath);
+
+            return new UpdateChapterResult(existingFile, true, changedOnDisk);
+        }
+
+        var file = new MangaFileBuilder(info.FullFilePath, info.Format, readingItemService.GetNumberOfPages(info.FullFilePath, info.Format))
+            .WithExtension(extension)
+            .WithBytes(stamp.Bytes)
+            .WithHash()
+            .Build();
+        chapter.Files.Add(file);
+
+        return new UpdateChapterResult(file, true, true);
+    }
+
+    /// <summary>
+    /// Same rule as <see cref="FolderChangeCheck"/>, so a folder it flags is not skipped here
+    /// </summary>
+    private bool HasFileChanged(MangaFile file, FileStamp onDisk)
+    {
+        if (file.Bytes != onDisk.Bytes) return true;
+        if (file.FileLastWriteTimeUtc == null) return fileService.HasFileBeenModifiedSince(file.FilePath, file.LastModified);
+
+        return !FolderChangeCheck.IsSameWriteTime(file.FileLastWriteTimeUtc.Value, onDisk.LastWriteTimeUtc);
+    }
+
+    private async Task UpdateChapterFromComicInfo(UpdateChapterComicInfoArgs args)
+    {
+        var comicInfo = args.ComicInfo;
+        var chapter = args.Chapter;
+
+        if (comicInfo == null || !(args.ForceUpdate || args.FileChanged)) return;
+
+        var sw = Stopwatch.StartNew();
+
+        if (!chapter.TitleNameLocked)
+        {
+            chapter.TitleName = comicInfo.Title.Trim();
+        }
+
+        if (!chapter.SummaryLocked)
+        {
+            chapter.Summary = comicInfo.Summary;
+        }
+
+        if (!chapter.LanguageLocked)
+        {
+            chapter.Language = comicInfo.LanguageISO;
+        }
+
+        chapter.SeriesGroup = comicInfo.SeriesGroup;
+        chapter.StoryArc = comicInfo.StoryArc;
+        chapter.AlternateSeries = comicInfo.AlternateSeries;
+        chapter.AlternateNumber = comicInfo.AlternateNumber;
+        chapter.StoryArcNumber = comicInfo.StoryArcNumber;
+        chapter.AlternateCount = comicInfo.AlternateCount;
+
+
+        if (!string.IsNullOrEmpty(comicInfo.Web))
+        {
+            if (comicInfo.Web.Contains(','))
+            {
+                chapter.WebLinks = string.Join(",", comicInfo.Web.SplitBy(','));
+            }
+            else
+            {
+                chapter.WebLinks = string.Join(",", comicInfo.Web.SplitBy(' '));
+            }
+        }
+        else
+        {
+            chapter.WebLinks = string.Empty;
+        }
+
+        if (!chapter.ISBNLocked)
+        {
+            chapter.ISBN = comicInfo.Isbn;
+        }
+
+        if (!chapter.ReleaseDateLocked && comicInfo.Year > 0)
+        {
+            var day = Math.Max(comicInfo.Day, 1);
+            var month = Math.Max(comicInfo.Month, 1);
+            chapter.ReleaseDate = new DateTime(comicInfo.Year, month, day);
+        }
+
+        foreach (var personRole in Enum.GetValues<PersonRole>())
+        {
+            if (chapter.IsPersonRoleLocked(personRole)) continue;
+
+            var comicInfoPeople = comicInfo.GetPeopleForRole(personRole);
+            PersonHelper.UpdateChapterPeople(args.DatabasePeople, chapter, comicInfoPeople, personRole);
+        }
+
+        var genres = comicInfo.Genre.SplitBy(',');
+        var tags = comicInfo.Tags.SplitBy(',');
+
+        if (!chapter.GenresLocked || !chapter.TagsLocked)
+        {
+            ExternalMetadataService.GenerateExternalGenreAndTagsList(genres, tags, args.Settings,
+                out var finalTags, out var finalGenres);
+
+            if (!chapter.GenresLocked)
+            {
+                await UpdateChapterGenres(chapter, finalGenres);
+            }
+
+            if (!chapter.TagsLocked)
+            {
+                await UpdateChapterTags(chapter, finalTags);
+            }
+
+        }
+
+        if (!chapter.AgeRatingLocked)
+        {
+            chapter.AgeRating = ComicInfo.ConvertAgeRatingToEnum(comicInfo.AgeRating);
+
+            if (args.Settings.EnableExtendedMetadataProcessing)
+            {
+                var allTags = genres.Concat(tags).Distinct().ToList();
+                var updatedRating = ExternalMetadataService.DetermineAgeRating(allTags, args.Settings.AgeRatingMappings);
+                if (updatedRating > chapter.AgeRating)
+                {
+                    chapter.AgeRating = updatedRating;
+                }
+            }
+        }
+
+        logger.LogTrace("[TIME] Kavita took {Time} ms to create/update Chapter: {File}", sw.ElapsedMilliseconds, chapter.Files.First().FileName);
+    }
+
+    private async Task UpdateChapterGenres(Chapter chapter, IEnumerable<string> genreNames)
+    {
+        try
+        {
+            await TagHelper.UpdateEntityTags(chapter.Genres, genreNames, unitOfWork.DataContext.Genre, unitOfWork);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "There was an error updating the chapter genres");
+        }
+    }
+
+    private async Task UpdateChapterTags(Chapter chapter, IEnumerable<string> tagNames)
+    {
+        try
+        {
+            await TagHelper.UpdateEntityTags(chapter.Tags, tagNames, unitOfWork.DataContext.Tag, unitOfWork);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "There was an error updating the chapter tags");
+        }
+    }
+
+    private async Task<Dictionary<string, Person>> LoadAndCreateMissingChapterPeople(Series series, IList<ParserInfo> parserInfos)
+    {
+        var comicInfos = parserInfos.Select(pi => pi.ComicInfo).WhereNotNull().ToList();
+
+        // We must ensure existing people are loaded as well. As a Chapter (entity) can have people locked, but a person
+        // removed from the ComicInfo. Which would later not be present in the dictionary
+        var existingPeople = series.Volumes
+            .SelectMany(v => v.Chapters
+                .SelectMany(c => c.People)
+                .Select(cp => cp.Person)
+                .Select(p => new TemporaryPerson(p.Name, p.NormalizedName)));
+
+        var allPeople = Enum.GetValues<PersonRole>()
+            .SelectMany(role => comicInfos.SelectMany(ci => ci.GetPeopleForRole(role)))
+            .Select(person => new TemporaryPerson(person, person.ToNormalized()))
+            .Concat(existingPeople)
+            .DistinctBy(person => person.NormalizedName)
+            .ToList();
+
+        var normalizedNames = allPeople.Select(p => p.NormalizedName).ToList();
+
+        var peopleInDatabase = await unitOfWork.PersonRepository.GetPeopleByNames(normalizedNames);
+        var existingPeopleDict = PersonHelper.ConstructNameAndAliasDictionary(peopleInDatabase);
+
+        var peopleToAdd = allPeople
+            .Where(p => !existingPeopleDict.ContainsKey(p.NormalizedName))
+            .Select(p => new PersonBuilder(p.Name).Build())
+            .ToList();
+
+        await unitOfWork.DataContext.Person.AddRangeAsync(peopleToAdd);
+
+        peopleToAdd.ForEach(p => existingPeopleDict[p.NormalizedName] = p);
+
+        return existingPeopleDict;
+    }
+}

@@ -1,153 +1,191 @@
-import {inject, Injectable} from '@angular/core';
-import { HttpRequest, HttpHandler, HttpEvent, HttpInterceptor } from '@angular/common/http';
-import { Observable, throwError } from 'rxjs';
-import { Router } from '@angular/router';
-import { ToastrService } from 'ngx-toastr';
-import { catchError } from 'rxjs/operators';
-import { AccountService } from '../_services/account.service';
-import {translate, TranslocoService} from "@jsverse/transloco";
-import {AuthGuard} from "../_guards/auth.guard";
+import {inject} from '@angular/core';
+import {HttpEvent, HttpHandlerFn, HttpInterceptorFn, HttpRequest} from '@angular/common/http';
+import {EMPTY, Observable, switchMap, throwError} from 'rxjs';
+import {ToastrService} from '@openng/ngx-toastr';
+import {catchError} from 'rxjs/operators';
+import {AccountService} from '../_services/account.service';
+import {translate} from "@jsverse/transloco";
+import {AUTH_URL_KEY} from "../_guards/auth.guard";
 import {APP_BASE_HREF} from "@angular/common";
 
-@Injectable()
-export class ErrorInterceptor implements HttpInterceptor {
+const REFRESH_URL_FRAGMENT = '/api/account/refresh-token';
 
-  baseURL = inject(APP_BASE_HREF);
+export const errorInterceptor: HttpInterceptorFn = (req, next) => {
+  const toastr = inject(ToastrService);
+  const accountService = inject(AccountService);
+  const baseURL = inject(APP_BASE_HREF);
 
-  constructor(private router: Router, private toastr: ToastrService,
-              private accountService: AccountService,
-              private translocoService: TranslocoService) {}
+  const handleError = (req: HttpRequest<unknown>, error: any, next: HttpHandlerFn, allowRefresh: boolean): Observable<HttpEvent<unknown>> => {
+    if (error === undefined || error === null) {
+      return throwError(() => error);
+    }
 
+    switch (error.status) {
+      case 400:
+        handleValidationError(error, toastr);
+        break;
+      case 401:
+        if (allowRefresh && !req.url.endsWith(REFRESH_URL_FRAGMENT) && accountService.currentUser()?.token) {
+          return accountService.refreshToken().pipe(
+            switchMap(tokens => {
+              if (!tokens.token) {
+                handleAuthError(req, error, accountService, toastr, baseURL);
+                return throwError(() => error);
+              }
 
-  intercept(request: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
-    return next.handle(request).pipe(
-      catchError(error => {
-        if (error === undefined || error === null) {
-          return throwError(error);
+              const retryRequest = req.clone({
+                setHeaders: {
+                  Authorization: `Bearer ${tokens.token}`
+                }
+              });
+
+              return next(retryRequest).pipe(
+                catchError(err => handleError(retryRequest, err, next, false))
+              );
+            })
+          )
         }
 
-        switch (error.status) {
-          case 400:
-            this.handleValidationError(error);
-            break;
-          case 401:
-            this.handleAuthError(request, error);
-            break;
-          case 404:
-            this.handleNotFound(error);
-            break;
-          case 500:
-            this.handleServerException(error);
-            break;
-          default:
-            // Don't throw multiple Something unexpected went wrong
-            const genericError = translate('errors.generic');
-            if (this.toastr.previousToastMessage !== 'Something unexpected went wrong.' && this.toastr.previousToastMessage !== genericError) {
-              this.toast(genericError);
-            }
-            break;
+        handleAuthError(req, error, accountService, toastr, baseURL);
+        break;
+      case 403:
+        handleForbiddenError(error, toastr);
+        break;
+      case 404:
+        handleNotFound(toastr);
+        break;
+      case 500:
+        handleServerException(error, toastr);
+        break;
+      case 413:
+        handlePayloadTooLargeException(toastr);
+        break;
+      default:
+        const genericError = translate('errors.generic');
+        if (toastr.previousToastMessage !== 'Something unexpected went wrong.' &&
+          toastr.previousToastMessage !== genericError) {
+          toast(genericError, toastr);
         }
-        return throwError(error);
-      })
-    );
+        console.error(error);
+        break;
+    }
+    return throwError(() => error);
   }
 
-  private handleValidationError(error: any) {
-    // This 400 can also be a bad request
-    if (Array.isArray(error.error)) {
-      const modalStateErrors: any[] = [];
-      if (error.error.length > 0 && error.error[0].hasOwnProperty('message')) {
-        if (error.error[0].details === null) {
-          error.error.forEach((issue: {status: string, details: string, message: string}) => {
-            modalStateErrors.push(issue.message);
-          });
-        } else {
-          error.error.forEach((issue: {status: string, details: string, message: string}) => {
-            modalStateErrors.push(issue.details);
-          });
-        }
+  return next(req).pipe(
+    catchError(err => handleError(req, err, next, true))
+  );
+};
+
+function handleValidationError(error: any, toastr: ToastrService) {
+  if (Array.isArray(error.error)) {
+    const modalStateErrors: any[] = [];
+    if (error.error.length > 0 && error.error[0].hasOwnProperty('message')) {
+      if (error.error[0].details === null) {
+        error.error.forEach((issue: {status: string, details: string, message: string}) => {
+          modalStateErrors.push(issue.message);
+        });
       } else {
-        error.error.forEach((issue: {code: string, description: string}) => {
-          modalStateErrors.push(issue.description);
+        error.error.forEach((issue: {status: string, details: string, message: string}) => {
+          modalStateErrors.push(issue.details);
         });
       }
-      throw modalStateErrors.flat();
-    } else if (error.error.errors) {
-      // Validation error
-      const modalStateErrors = [];
-      for (const key in error.error.errors) {
-        if (error.error.errors[key]) {
-          modalStateErrors.push(error.error.errors[key]);
-        }
-      }
-      throw modalStateErrors.flat();
     } else {
-      console.error('error:', error);
-      if (error.statusText === 'Bad Request') {
-        if (error.error instanceof Blob) {
-          this.toast('errors.download', error.status);
-          return;
-        }
-        this.toast(error.error, this.translocoService.translate('errors.error-code', {num: error.status}));
-      } else {
-        this.toast(error.statusText === 'OK' ? error.error : error.statusText, this.translocoService.translate('errors.error-code', {num: error.status}));
+      error.error.forEach((issue: {code: string, description: string}) => {
+        modalStateErrors.push(issue.description);
+      });
+    }
+    throw modalStateErrors.flat();
+  } else if (error.error && error.error.errors) {
+    const modalStateErrors = [];
+    for (const key in error.error.errors) {
+      if (error.error.errors[key]) {
+        modalStateErrors.push(error.error.errors[key]);
       }
     }
-  }
-
-  private handleNotFound(error: any) {
-    this.toast('errors.not-found');
-  }
-
-  private handleServerException(error: any) {
-    const err = error.error;
-    if (err.hasOwnProperty('message') && err.message.trim() !== '') {
-      if (err.message != 'User is not authenticated' && error.message !== 'errors.user-not-auth') {
-        console.error('500 error: ', error);
+    throw modalStateErrors.flat();
+  } else {
+    console.error('error:', error);
+    if (error.statusText === 'Bad Request') {
+      if (error.error instanceof Blob) {
+        toast('errors.download', toastr, error.status);
+        return;
       }
-      this.toast(err.message);
-      return;
-    }
-    if (error.hasOwnProperty('message') && error.message.trim() !== '') {
-      if (error.message !== 'User is not authenticated' && error.message !== 'errors.user-not-auth') {
-        console.error('500 error: ', error);
-      }
-      return;
-    }
-
-    this.toast('errors.unknown-crit');
-    console.error('500 error:', error);
-  }
-
-  private handleAuthError(req: HttpRequest<unknown>, error: any) {
-    // Special hack for register url, to not care about auth
-    if (location.href.includes('/registration/confirm-email?token=')) {
-      return;
-    }
-
-    const path = window.location.pathname;
-    if (path !== '/login' && !path.startsWith(this.baseURL+"registration") && path !== '') {
-      localStorage.setItem(AuthGuard.urlKey, path);
-    }
-
-    if (error.error && error.error !== 'Unauthorized') {
-      this.toast(translate(error.error));
-    }
-
-    // NOTE: Signin has error.error or error.statusText available.
-    // if statement is due to http/2 spec issue: https://github.com/angular/angular/issues/23334
-
-    // Ensure AutoLogin is skipped when the OIDC endpoint is called
-    this.accountService.logout(req.method === 'GET' && req.url.endsWith('/api/account'));
-  }
-
-  // Assume the title is already translated
-  private toast(message: string, title?: string) {
-    if ((message+'').startsWith('errors.')) {
-      this.toastr.error(this.translocoService.translate(message), title);
+      toast(error.error, toastr,
+        translate('errors.error-code', {num: error.status}));
     } else {
-      this.toastr.error(message, title);
+      toast(error.statusText === 'OK' ? error.error : error.statusText,
+        toastr,
+        translate('errors.error-code', {num: error.status}));
     }
   }
+}
 
+function handleForbiddenError(error: any, toastr: ToastrService) {
+  const msg = error.error?.message ?? error.error;
+  if (typeof msg === 'string' && msg.trim() !== '') {
+    toast(msg, toastr);
+    return;
+  }
+  toast('errors.generic', toastr);
+}
+
+function handleNotFound(toastr: ToastrService) {
+  toast('errors.not-found', toastr);
+}
+
+function handlePayloadTooLargeException(toastr: ToastrService) {
+  toast('errors.upload-too-large', toastr);
+}
+
+function handleServerException(error: any, toastr: ToastrService) {
+  const err = error.error;
+  if (err.hasOwnProperty('message') && err.message.trim() !== '') {
+    if (err.message !== 'User is not authenticated' && error.message !== 'errors.user-not-auth') {
+      console.error('500 error: ', error);
+    }
+    toast(err.message, toastr);
+    return;
+  }
+  if (error.hasOwnProperty('message') && error.message.trim() !== '') {
+    if (error.message !== 'User is not authenticated' && error.message !== 'errors.user-not-auth') {
+      console.error('500 error: ', error);
+    }
+    return;
+  }
+
+  toast('errors.unknown-crit', toastr);
+  console.error('500 error:', error);
+}
+
+function handleAuthError(
+  req: HttpRequest<unknown>,
+  error: any,
+  accountService: AccountService,
+  toastr: ToastrService,
+  baseURL: string
+) {
+  if (location.href.includes('/registration/confirm-email?token=')) {
+    return;
+  }
+
+  const path = window.location.pathname;
+  if (path !== '/login' && !path.startsWith(baseURL + "registration") && path !== '') {
+    localStorage.setItem(AUTH_URL_KEY, path);
+  }
+
+  if (error.error && error.error !== 'Unauthorized') {
+    toast(translate(error.error), toastr);
+  }
+
+  accountService.logout(req.method === 'GET' && req.url.endsWith('/api/account'));
+}
+
+function toast(message: string, toastr: ToastrService, title?: string | number) {
+  const titleStr = typeof title === 'number' ? title.toString() : title;
+  if ((message + '').startsWith('errors.')) {
+    toastr.error(translate(message), titleStr);
+  } else {
+    toastr.error(message, titleStr);
+  }
 }

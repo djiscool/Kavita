@@ -1,74 +1,61 @@
 import {
-  AfterContentInit,
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
-  ContentChild,
+  computed,
+  contentChild,
   ElementRef,
-  inject,
-  Input,
-  TemplateRef
+  input,
+  signal,
+  TemplateRef,
+  viewChild
 } from '@angular/core';
-import {NgTemplateOutlet} from "@angular/common";
 import {TranslocoDirective} from "@jsverse/transloco";
 import {SafeHtmlPipe} from "../../../_pipes/safe-html.pipe";
+import {generateUniqueId} from "../../../_helpers/random";
+import {wireSettingControl} from "../../../_helpers/setting-item";
+import {NgTemplateOutlet} from "@angular/common";
+import {AnyField} from "../../../shared/_models/field-view";
+import {ValidationErrorsComponent} from "../../../shared/_components/validation-errors/validation-errors.component";
 
+/**
+ * Provides the setting-item styling and accessibility (id generation) for switches
+ */
 @Component({
     selector: 'app-setting-switch',
-    imports: [
-        NgTemplateOutlet,
-        TranslocoDirective,
-        SafeHtmlPipe
-    ],
+  imports: [
+    TranslocoDirective,
+    SafeHtmlPipe,
+    NgTemplateOutlet,
+    ValidationErrorsComponent
+  ],
     templateUrl: './setting-switch.component.html',
     styleUrl: './setting-switch.component.scss',
     changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class SettingSwitchComponent implements AfterContentInit {
+export class SettingSwitchComponent {
 
-  private readonly cdRef = inject(ChangeDetectorRef);
-  private readonly elementRef = inject(ElementRef);
+  title = input.required<string>();
+  subtitle = input<string | undefined>();
+  /** The field backing the projected switch, so the label and validation messaging can be wired to it */
+  control = input<AnyField | null>(null);
+  /** Custom validation messages */
+  validations = input<Record<string, string>>({});
+  switchRef = contentChild(TemplateRef);
 
-  @Input({required:true}) title: string = '';
-  @Input() subtitle: string | undefined = undefined;
-  @Input() id: string | undefined = undefined;
-  @ContentChild('switch') switchRef!: TemplateRef<any>;
+  switchWrapper = viewChild<ElementRef<HTMLElement>>('switchWrapper');
+  private readonly wrapperScope = computed(() =>
+    this.switchWrapper()?.nativeElement ?? null
+  );
+  private readonly generatedId = signal<string>(generateUniqueId());
+  /** A unique id to wire id up */
+  readonly elementId = computed(() => {
+    return this.generatedId();
+  });
 
-  /**
-   * For wiring up with a real label
-   */
-  labelId: string = '';
-
-  ngAfterContentInit(): void {
-    setTimeout(() => {
-      if (this.id) {
-        this.labelId = this.id;
-        this.cdRef.markForCheck();
-        return;
-      }
-
-      const element = this.elementRef.nativeElement;
-      const inputElement = element.querySelector('input');
-
-      // If no id, generate a random id and assign it to the input
-      inputElement.id = this.generateId();
-
-      if (inputElement && inputElement.id) {
-        this.labelId = inputElement.id;
-        this.cdRef.markForCheck();
-      } else {
-        console.warn('No input with ID found in app-setting-switch. For accessibility, please ensure the input has an ID.');
-      }
-    });
-  }
-
-  private generateId(): string {
-    if (crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    // Fallback for browsers without crypto.randomUUID (which has happened multiple times in my user base)
-    return 'id-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now().toString(36);
-  }
-
+  protected readonly hasControl = wireSettingControl({
+    scope: this.wrapperScope,
+    elementId: this.elementId,
+    describeValidation: computed(() => this.control() !== null),
+    label: this.title,
+  }).hasControl;
 }

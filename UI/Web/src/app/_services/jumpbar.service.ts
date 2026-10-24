@@ -12,8 +12,6 @@ export class JumpbarService {
   // Used for custom filtered urls
   resumeScroll: {[key: string]: number} = {};
 
-  constructor() { }
-
 
   getResumeKey(key: string) {
     const k = key.toUpperCase();
@@ -107,7 +105,7 @@ export class JumpbarService {
     data.forEach(obj => {
       try {
         let ch = keySelector(obj).charAt(0).toUpperCase();
-        if (/\d|\#|!|%|@|\(|\)|\^|\.|_|\*/g.test(ch)) {
+        if (!/\p{L}/u.test(ch)) {
           ch = '#';
         }
         if (!keys.hasOwnProperty(ch)) {

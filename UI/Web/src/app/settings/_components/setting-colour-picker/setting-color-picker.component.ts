@@ -1,31 +1,33 @@
 import {
-  Component, DestroyRef,
-  effect, ElementRef,
-  EventEmitter,
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
   HostListener,
   inject,
   input,
   model,
   OnInit,
-  Output,
+  output,
   signal,
-  ViewChild
+  viewChild
 } from '@angular/core';
-import {CommonModule} from '@angular/common';
+import {NgClass, NgStyle} from '@angular/common';
 import {SlotColorPipe} from "../../../_pipes/slot-color.pipe";
 import {RgbaColor} from "../../../book-reader/_models/annotations/highlight-slot";
 import {LongClickDirective} from "../../../_directives/long-click.directive";
 import {ChromePickerComponent, Color, ColorPickerControl} from "@iplab/ngx-color-picker";
-import {UserBreakpoint, UtilityService} from "../../../shared/_services/utility.service";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {debounceTime, distinctUntilChanged} from "rxjs/operators";
 import {tap} from "rxjs";
+import {Breakpoint, BreakpointService} from "../../../_services/breakpoint.service";
 
 @Component({
   selector: 'app-setting-colour-picker',
   standalone: true,
-  imports: [CommonModule, SlotColorPipe, LongClickDirective, ChromePickerComponent],
+  imports: [SlotColorPipe, LongClickDirective, ChromePickerComponent, NgClass, NgStyle],
   templateUrl: './setting-color-picker.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './setting-color-picker.component.scss'
 })
 export class SettingColorPickerComponent implements OnInit {
@@ -33,9 +35,9 @@ export class SettingColorPickerComponent implements OnInit {
   private readonly elementRef = inject(ElementRef);
   private readonly slotColorPipe = inject(SlotColorPipe);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly utilityService: UtilityService = inject(UtilityService);
+  protected readonly breakpointService = inject(BreakpointService);
 
-  @ViewChild('colorPopup') colorPopup?: ElementRef;
+  readonly colorPopup = viewChild<ElementRef>('colorPopup');
 
   id = input.required<string>();
   label = input.required<string>();
@@ -58,11 +60,11 @@ export class SettingColorPickerComponent implements OnInit {
 
   showPicker = signal(false);
 
-  @Output() selectPicker = new EventEmitter<void>();
+  selectPicker = output();
   /**
    * Emits the raw color from the color picker rather than our RgbaColor
    */
-  @Output() rawColorChange = new EventEmitter<Color>();
+  rawColorChange = output<Color>();
 
   chromeControl!: ColorPickerControl;
 
@@ -70,17 +72,18 @@ export class SettingColorPickerComponent implements OnInit {
   onDocumentClick(event: Event) {
     if (!this.showPicker()) return;
 
-    if (!this.colorPopup) return;
+    const colorPopup = this.colorPopup();
+    if (!colorPopup) return;
 
     const clickedElement = event.target as Node;
 
-    if (!this.elementRef.nativeElement.contains(clickedElement) && !this.colorPopup.nativeElement.contains(clickedElement)) {
+    if (!this.elementRef.nativeElement.contains(clickedElement) && !colorPopup.nativeElement.contains(clickedElement)) {
       this.showPicker.set(false);
     }
   }
 
   onSelect() {
-    this.selectPicker.emit();
+    this.selectPicker.emit(undefined);
   }
 
   longClick() {
@@ -88,7 +91,7 @@ export class SettingColorPickerComponent implements OnInit {
 
     this.editMode.update(b => !b);
 
-    if (this.utilityService.activeUserBreakpoint() < UserBreakpoint.Desktop) {
+    if (this.breakpointService.activeBreakpoint() < Breakpoint.Desktop) {
       this.showPicker.update(b => !b);
     }
   }
@@ -107,7 +110,7 @@ export class SettingColorPickerComponent implements OnInit {
       .pipe(
         takeUntilDestroyed(this.destroyRef),
         distinctUntilChanged(),
-        debounceTime(500), // TODO: Find a fitting time, or move to explicit save?
+        debounceTime(500),
         tap((color) => {
           const rgba: RgbaColor = {
             a: color.getRgba().alpha,

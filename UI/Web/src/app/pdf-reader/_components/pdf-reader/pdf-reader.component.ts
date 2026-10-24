@@ -2,48 +2,64 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  computed,
   DestroyRef,
+  effect,
   ElementRef,
   HostListener,
   inject,
-  Inject,
   OnDestroy,
   OnInit,
-  ViewChild
+  viewChild
 } from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
-import {NgxExtendedPdfViewerModule, PageViewModeType, ProgressBarEvent, ScrollModeType} from 'ngx-extended-pdf-viewer';
-import {ToastrService} from 'ngx-toastr';
+import {
+  NgxExtendedPdfViewerModule,
+  PageViewModeType,
+  pdfDefaultOptions,
+  ProgressBarEvent,
+  ScrollModeType,
+  SpreadType
+} from 'ngx-extended-pdf-viewer';
+import {ToastrService} from '@openng/ngx-toastr';
 import {take} from 'rxjs';
-import {BookService} from 'src/app/book-reader/_services/book.service';
-import {Breakpoint, KEY_CODES, UtilityService} from 'src/app/shared/_services/utility.service';
-import {Chapter} from 'src/app/_models/chapter';
-import {User} from 'src/app/_models/user';
-import {AccountService} from 'src/app/_services/account.service';
-import {NavService} from 'src/app/_services/nav.service';
-import {CHAPTER_ID_DOESNT_EXIST, ReaderService} from 'src/app/_services/reader.service';
-import {SeriesService} from 'src/app/_services/series.service';
-import {ThemeService} from 'src/app/_services/theme.service';
 import {NgbTooltip} from '@ng-bootstrap/ng-bootstrap';
-import {AsyncPipe, DOCUMENT, NgStyle} from '@angular/common';
+import {DOCUMENT, NgStyle} from '@angular/common';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {PdfLayoutMode} from "../../../_models/preferences/pdf-layout-mode";
 import {PdfScrollMode} from "../../../_models/preferences/pdf-scroll-mode";
 import {PdfTheme} from "../../../_models/preferences/pdf-theme";
 import {PdfSpreadMode} from "../../../_models/preferences/pdf-spread-mode";
-import {SpreadType} from "node_modules/ngx-extended-pdf-viewer/lib/options/spread-type";
 import {PdfScrollModeTypePipe} from "../../_pipe/pdf-scroll-mode.pipe";
 import {PdfSpreadTypePipe} from "../../_pipe/pdf-spread-mode.pipe";
-import {ReadingProfileService} from "../../../_services/reading-profile.service";
 import {ReadingProfile} from "../../../_models/preferences/reading-profiles";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {KeyBindService} from "../../../_services/key-bind.service";
+import {KeyBindTarget} from "../../../_models/preferences/preferences";
+import {Breakpoint, BreakpointService} from "../../../_services/breakpoint.service";
+import {SeriesService} from "../../../_services/series.service";
+import {NavService} from "../../../_services/nav.service";
+import {BookService} from "../../../book-reader/_services/book.service";
+import {ThemeService} from "../../../_services/theme.service";
+import {AccountService} from "../../../_services/account.service";
+import {CHAPTER_ID_DOESNT_EXIST, ReaderService} from "../../../_services/reader.service";
+import {UtilityService} from "../../../shared/_services/utility.service";
+import {Chapter} from "../../../_models/chapter";
+import {User} from "../../../_models/user/user";
+
+const KEYBIND_TARGETS = [
+  {keyBindTarget: KeyBindTarget.OpenHelp},
+  {keyBindTarget: KeyBindTarget.Escape},
+  {keyBindTarget: KeyBindTarget.FirstPage, description: 'first-page'},
+  {keyBindTarget: KeyBindTarget.LastPage, description: 'last-page'},
+];
 
 @Component({
   selector: 'app-pdf-reader',
   templateUrl: './pdf-reader.component.html',
   styleUrls: ['./pdf-reader.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgStyle, NgxExtendedPdfViewerModule, NgbTooltip, AsyncPipe, TranslocoDirective,
+  imports: [NgStyle, NgxExtendedPdfViewerModule, NgbTooltip, TranslocoDirective,
     PdfScrollModeTypePipe, PdfSpreadTypePipe]
 })
 export class PdfReaderComponent implements OnInit, OnDestroy {
@@ -57,15 +73,15 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
   private readonly themeService = inject(ThemeService);
   private readonly cdRef = inject(ChangeDetectorRef);
   public readonly accountService = inject(AccountService);
-  private readonly readingProfileService = inject(ReadingProfileService);
   public readonly readerService = inject(ReaderService);
   public readonly utilityService = inject(UtilityService);
   public readonly destroyRef = inject(DestroyRef);
+  public readonly document = inject(DOCUMENT);
+  private readonly keyBindService = inject(KeyBindService);
+  protected readonly breakpointService = inject(BreakpointService);
 
-  protected readonly ScrollModeType = ScrollModeType;
-  protected readonly Breakpoint = Breakpoint;
 
-  @ViewChild('container') container!: ElementRef;
+  readonly container = viewChild.required<ElementRef>('container');
 
   libraryId!: number;
   seriesId!: number;
@@ -110,6 +126,10 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
   backgroundColor: string = this.themeMap[this.theme].background;
   fontColor: string = this.themeMap[this.theme].font;
 
+  /**
+   * True if Preferences.DataSaver is true
+   */
+  disableLoadingIndicator = computed(() => this.accountService.userPreferences()?.dataSaver);
   isLoading: boolean = true;
   /**
    * How much of the current document is loaded
@@ -122,22 +142,50 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
   spreadMode: SpreadType = 'off';
   isSearchOpen: boolean = false;
 
-  constructor(@Inject(DOCUMENT) private document: Document) {
+  canDownload = computed(() =>
+    this.accountService.hasDownloadRole()
+  );
+
+  constructor() {
       this.navService.hideNavBar();
       this.themeService.clearThemes();
       this.navService.hideSideNav();
-  }
 
-  @HostListener('window:keyup', ['$event'])
-  handleKeyPress(event: KeyboardEvent) {
-    if (event.key === KEY_CODES.ESC_KEY) {
-      this.closeReader();
-    }
+      this.keyBindService.registerListener(
+        this.destroyRef,
+        (e) => {
+          switch (e.target) {
+            case KeyBindTarget.Escape:
+              this.closeReader();
+              break;
+            case KeyBindTarget.FirstPage:
+              this.currentPage = 0;
+              this.cdRef.markForCheck();
+              break;
+            case KeyBindTarget.LastPage:
+              this.currentPage = this.maxPages;
+              this.cdRef.markForCheck();
+              break;
+            case KeyBindTarget.OpenHelp:
+              this.openShortcutModal();
+          }
+
+        },
+        KEYBIND_TARGETS.map(k => k.keyBindTarget as KeyBindTarget),
+      );
+
+      effect(() => {
+        const prefs = this.accountService.userPreferences();
+        if (prefs) {
+          pdfDefaultOptions.disableAutoFetch = prefs.dataSaver;
+          this.cdRef.markForCheck();
+        }
+      });
   }
 
   @HostListener('window:resize', ['$event'])
   @HostListener('window:orientationchange', ['$event'])
-  onResize(){
+  onResize(event: Event){
     // Update the window Height
     this.calcScrollbarNeeded();
   }
@@ -150,6 +198,8 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
     this.navService.showNavBar();
     this.navService.showSideNav();
     this.readerService.disableWakeLock();
+
+    window.removeEventListener('keydown', this.downloadHandler, { capture: true });
   }
 
   ngOnInit(): void {
@@ -186,19 +236,25 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
 
     this.cdRef.markForCheck();
 
-    this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
-      if (user) {
-        this.user = user;
-        this.init();
-      }
-    });
+    window.addEventListener('keydown', this.downloadHandler, { capture: true });
+
+    this.init();
   }
+
+  private downloadHandler = (event: KeyboardEvent) => {
+    if (event.ctrlKey && event.key.toLowerCase() === 's') {
+      if (!this.accountService.hasDownloadRole()) {
+        event.preventDefault();
+        event.stopImmediatePropagation(); // Stops ALL other handlers
+      }
+    }
+  };
 
 
   calcScrollbarNeeded() {
     const viewContainer = this.document.querySelector('#viewerContainer');
     if (viewContainer == null) return;
-    this.scrollbarNeeded = viewContainer.scrollHeight > this.container?.nativeElement?.clientHeight;
+    this.scrollbarNeeded = viewContainer.scrollHeight > this.container()?.nativeElement?.clientHeight;
     this.cdRef.markForCheck();
   }
 
@@ -278,11 +334,11 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
 
       if (this.currentPage >= this.maxPages) {
         this.currentPage = this.maxPages - 1;
-        this.saveProgress();
+        // Don't save progress on first load to avoid session creation, wait for a page change event
       }
       this.cdRef.markForCheck();
     });
-    setTimeout(() => this.readerService.enableWakeLock(this.container.nativeElement), 1000);
+    setTimeout(() => this.readerService.enableWakeLock(this.container().nativeElement), 1000);
   }
 
   /**
@@ -338,7 +394,7 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
     if (this.pageLayoutMode === 'book') {
       this.pageLayoutMode = 'multiple';
     } else {
-      if (this.utilityService.getActiveBreakpoint() < Breakpoint.Tablet) {
+      if (this.breakpointService.activeBreakpoint() < Breakpoint.Tablet) {
         this.toastr.info(translate('toasts.pdf-book-mode-screen-size'));
         return;
       }
@@ -354,7 +410,12 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
   }
 
   closeReader() {
-    this.readerService.closeReader(this.libraryId, this.seriesId, this.chapterId, this.readingListMode, this.readingListId);
+     if (this.readerService.closeShortCutModal()) return;
+     this.readerService.closeReader(this.libraryId, this.seriesId, this.chapterId, this.readingListMode, this.readingListId);
+  }
+
+  openShortcutModal() {
+     this.readerService.openShortcutModal(KEYBIND_TARGETS);
   }
 
   updateLoading(state: boolean) {
@@ -367,9 +428,6 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
     this.cdRef.markForCheck();
   }
 
-  updateHandTool(event: any) {
-     console.log('event.tool', event);
-  }
 
   updateSearchOpen(event: boolean) {
      this.isSearchOpen = event;
@@ -388,4 +446,7 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
     this.cdRef.markForCheck();
   }
 
+
+  protected readonly Breakpoint = Breakpoint;
+  protected readonly ScrollModeType = ScrollModeType;
 }

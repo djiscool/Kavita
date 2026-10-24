@@ -1,48 +1,40 @@
-import {DOCUMENT, NgClass, NgForOf, NgTemplateOutlet} from '@angular/common';
+import {DOCUMENT, NgClass, NgTemplateOutlet} from '@angular/common';
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
   computed,
-  ContentChild,
+  contentChild,
   DestroyRef,
-  ElementRef,
+  effect,
   EventEmitter,
-  HostListener,
   inject,
-  Inject,
   input,
-  Input,
-  OnChanges,
-  OnInit,
-  Output,
+  output,
   signal,
-  Signal,
-  SimpleChange,
-  SimpleChanges,
   TemplateRef,
   TrackByFunction,
-  ViewChild,
+  viewChild,
   WritableSignal
 } from '@angular/core';
 import {NavigationStart, Router} from '@angular/router';
-import {VirtualScrollerComponent, VirtualScrollerModule} from '@iharbeck/ngx-virtual-scroller';
-import {Breakpoint, UtilityService} from 'src/app/shared/_services/utility.service';
-import {JumpKey} from 'src/app/_models/jumpbar/jump-key';
-import {Library} from 'src/app/_models/library/library';
-import {Pagination} from 'src/app/_models/pagination';
-import {FilterEvent, FilterItem, SortField} from 'src/app/_models/metadata/series-filter';
-import {ActionItem} from 'src/app/_services/action-factory.service';
-import {JumpbarService} from 'src/app/_services/jumpbar.service';
+import {VirtualScrollerComponent} from '@kareadita/ngx-virtual-scroller';
 import {LoadingComponent} from "../../shared/loading/loading.component";
 import {MetadataFilterComponent} from "../../metadata-filter/metadata-filter.component";
 import {TranslocoDirective} from "@jsverse/transloco";
 import {CardActionablesComponent} from "../../_single-module/card-actionables/card-actionables.component";
-import {filter, map} from "rxjs/operators";
+import {filter} from "rxjs/operators";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {tap} from "rxjs";
 import {FilterV2} from "../../_models/metadata/v2/filter-v2";
 import {FilterSettingsBase, ValidFilterEntity} from "../../metadata-filter/filter-settings";
+import {ActionItem} from "../../_models/actionables/action-item";
+import {ActionResult} from "../../_models/actionables/action-result";
+import {MetadataService} from "../../_services/metadata.service";
+import {JumpbarService} from "../../_services/jumpbar.service";
+import {Pagination} from "../../_models/pagination";
+import {JumpKey} from "../../_models/jumpbar/jump-key";
+import {FilterEvent, SeriesSortField} from "../../_models/metadata/series-filter";
 
 
 const ANIMATION_TIME_MS = 0;
@@ -58,176 +50,213 @@ const ANIMATION_TIME_MS = 0;
  *    - Pass an identity function for trackby
  *    - Pass a pagination object for the total count
  *    - Pass the items
- *    -
  */
 @Component({
   selector: 'app-card-detail-layout',
-  imports: [LoadingComponent, VirtualScrollerModule, CardActionablesComponent, MetadataFilterComponent,
-    TranslocoDirective, NgTemplateOutlet, NgClass, NgForOf],
+  imports: [LoadingComponent, VirtualScrollerComponent, CardActionablesComponent, MetadataFilterComponent, TranslocoDirective, NgTemplateOutlet, NgClass],
   templateUrl: './card-detail-layout.component.html',
   styleUrls: ['./card-detail-layout.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true
 })
-export class CardDetailLayoutComponent<TFilter extends number, TSort extends number> implements OnInit, OnChanges {
-
-  protected readonly utilityService = inject(UtilityService);
-  private readonly cdRef = inject(ChangeDetectorRef);
+export class CardDetailLayoutComponent<TFilter extends number, TSort extends number> implements AfterViewInit {
+  private readonly document = inject<Document>(DOCUMENT);
   private readonly jumpbarService = inject(JumpbarService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly metadataService = inject(MetadataService);
 
 
-
-  header: Signal<string> = input('');
-  @Input() isLoading: boolean = false;
-  @Input() pagination!: Pagination;
-  @Input() items: any[] = [];
-
+  header = input('');
+  isLoading = input(false);
+  pagination = input<Pagination | undefined>();
+  items = input<any[]>([]);
 
   /**
    * Parent scroll for virtualize pagination
    */
-  @Input() parentScroll!: Element | Window;
+  parentScroll = input<Element | Window>();
 
   // We need to pass filterOpen from the grandfather to the metadata filter due to the filter button being in a separate component
-  @Input() filterOpen!: EventEmitter<boolean>;
+  filterOpen = input<EventEmitter<boolean>>();
   /**
    * Should filtering be shown on the page
    */
-  @Input() filteringDisabled: boolean = false;
+  filteringDisabled = input(false);
   /**
    * Any actions to exist on the header for the parent collection (library, collection)
    */
-  actions: Signal<ActionItem<any>[]> = input([]);
+  actions = input<ActionItem<any>[]>([]);
   /**
    * A trackBy to help with rendering. This is required as without it there are issues when scrolling
    */
-  @Input({required: true}) trackByIdentity!: TrackByFunction<any>;
-  @Input() filterSettings: FilterSettingsBase | undefined = undefined;
+  trackByIdentity = input.required<TrackByFunction<any>>();
+  filterSettings = input<FilterSettingsBase | undefined>();
   entityType = input<ValidFilterEntity | 'other'>();
-  @Input() refresh!: EventEmitter<void>;
+  refresh = input<EventEmitter<void>>();
 
 
   /**
    * Will force the jumpbar to be disabled - in cases where you're not using a traditional filter config
    */
   customSort = input(false);
-  @Input() jumpBarKeys: Array<JumpKey> = []; // This is approx 784 pixels tall, original keys
-  jumpBarKeysToRender: Array<JumpKey> = []; // What is rendered on screen
+  jumpBarKeys = input<Array<JumpKey>>([]); // This is approx 784 pixels tall, original keys
+  gridColumnsTemplate = input('repeat(auto-fill, 10rem)');
 
-  @Output() itemClicked: EventEmitter<any> = new EventEmitter();
-  @Output() applyFilter: EventEmitter<FilterEvent> = new EventEmitter();
+  itemClicked = output<any>();
+  applyFilter = output<FilterEvent>();
 
-  @ContentChild('cardItem') itemTemplate!: TemplateRef<any>;
-  @ContentChild('noData') noDataTemplate: TemplateRef<any> | null = null;
-  @ViewChild('.jump-bar') jumpBar!: ElementRef<HTMLDivElement>;
+  itemTemplate = contentChild.required<TemplateRef<any>>('cardItem');
+  noDataTemplate = contentChild<TemplateRef<any>>('noData');
+  /**
+   * Template that is rendered next to the save button
+   */
+  extraButtonsRef = contentChild<TemplateRef<any>>('extraButtons');
+  /**
+   * Template that is rendered above the grid, but always below the filter
+   */
+  topBar = contentChild<TemplateRef<any>>('topBar');
 
-  @ViewChild(VirtualScrollerComponent) private virtualScroller!: VirtualScrollerComponent;
+  private virtualScroller = viewChild(VirtualScrollerComponent);
 
-  libraries: Array<FilterItem<Library>> = [];
-
-  updateApplied: number = 0;
   bufferAmount: number = 1;
+  resumed: boolean = false;
 
+  private viewportHeight = signal(0);
 
   filterSignal: WritableSignal<FilterV2<number, number> | undefined> = signal(undefined);
-  hasCustomSort = computed(() => {
-    if (this.customSort()) return true;
-    if (this.filteringDisabled) return false;
 
-    const filter = this.filterSignal();
-    return filter?.sortOptions?.sortField != SortField.SortName || !filter?.sortOptions.isAscending;
+  effectivePagination = computed(() => {
+    const p = this.pagination();
+    if (p) return p;
+    const items = this.items();
+    return {currentPage: 1, itemsPerPage: items.length, totalItems: items.length, totalPages: 1};
   });
 
+  jumpBarKeysToRender = computed(() => {
+    const keys = this.jumpBarKeys();
+    const height = this.viewportHeight();
+    return height > 0
+      ? this.jumpbarService.generateJumpBar(keys, height)
+      : [...keys];
+  });
 
-  constructor(@Inject(DOCUMENT) private document: Document) {}
+  hasCustomSort = computed(() => {
+    const customSort = this.customSort();
+    const filteringDisabled = this.filteringDisabled();
+    const filter = this.filterSignal();
+    const entityType = this.entityType();
 
+    if (customSort) return true;
+    if (filteringDisabled) return false;
 
-  @HostListener('window:resize', ['$event'])
-  @HostListener('window:orientationchange', ['$event'])
-  resizeJumpBar() {
-    const currentSize = (this.document.querySelector('.viewport-container')?.getBoundingClientRect().height || 10) - 30;
-    this.jumpBarKeysToRender = this.jumpbarService.generateJumpBar(this.jumpBarKeys, currentSize);
-    this.cdRef.markForCheck();
-  }
+    const isNonStandardEntity = !entityType || entityType === 'other';
 
-  ngOnInit(): void {
-    if (this.trackByIdentity === undefined) {
-      this.trackByIdentity = (_: number, item: any) => `${this.header()}_${this.updateApplied}_${item?.id}`;
-    }
+    const defaultOptions = isNonStandardEntity ? SeriesSortField.SortName : this.metadataService.getDefaultSortField(entityType);
+    return (defaultOptions !== filter?.sortOptions?.sortField) || !filter?.sortOptions?.isAscending;
+  });
 
-    if (this.pagination === undefined) {
-      const items = this.items;
-      this.pagination = {currentPage: 1, itemsPerPage: items.length, totalItems: items.length, totalPages: 1};
-      this.cdRef.markForCheck();
-    }
+  trackItem = (index: number, item: any) => this.trackByIdentity()(index, item);
 
-    if (this.refresh) {
-      this.refresh.subscribe(() => {
-        this.cdRef.markForCheck();
-        this.virtualScroller.refresh();
-      });
-    }
-
+  constructor() {
+    // Save jump key on navigation away
     this.router.events.pipe(
       filter(event => event instanceof NavigationStart),
-      takeUntilDestroyed(this.destroyRef),
-      map(evt => evt as NavigationStart),
-      tap(_ => this.tryToSaveJumpKey()),
+      takeUntilDestroyed(),
+      tap(() => this.tryToSaveJumpKey({})),
     ).subscribe();
 
+    // Subscribe to refresh emitter (with cleanup on change)
+    effect((onCleanup) => {
+      const refreshEmitter = this.refresh();
+      if (!refreshEmitter) return;
+      const sub = refreshEmitter.subscribe(() => this.virtualScroller()?.refresh());
+      onCleanup(() => sub.unsubscribe());
+    });
+
+    // Resume scroll position when jump bar keys change
+    effect(() => {
+      const keysToRender = this.jumpBarKeysToRender();
+      if (keysToRender.length === 0 || this.resumed) return;
+
+      this.resumed = true;
+      this.tryResumeScrollPosition(keysToRender);
+    });
+
   }
 
+  ngAfterViewInit() {
+    const container = this.document.querySelector('.viewport-container');
+    if (!container) return;
 
-  ngOnChanges(changes: SimpleChanges): void {
-    this.jumpBarKeysToRender = [...this.jumpBarKeys];
-    this.resizeJumpBar();
+    const observer = new ResizeObserver(entries => {
+      const h = (entries[0]?.contentRect.height || 10) - 30;
+      this.viewportHeight.set(h);
+    });
 
-    const startIndex = this.jumpbarService.getResumePosition(this.router.url);
-    if (startIndex > 0) {
-      setTimeout(() => this.virtualScroller.scrollToIndex(startIndex, true, 0, ANIMATION_TIME_MS), 10);
-      return;
-    }
-
-    if (changes.hasOwnProperty('isLoading')) {
-      const loadingChange = changes['isLoading'] as SimpleChange;
-      if (loadingChange.previousValue === true && loadingChange.currentValue === false) {
-        setTimeout(() => this.virtualScroller.scrollToIndex(0, true, 0, ANIMATION_TIME_MS), 10);
-      }
-    }
+    observer.observe(container);
+    this.destroyRef.onDestroy(() => observer.disconnect());
   }
 
-  performAction(action: ActionItem<any>) {
-    if (typeof action.callback === 'function') {
-      action.callback(action, undefined);
-    }
+  performAction(event: ActionItem<void> | ActionResult<void>) {
+    // Skip ActionResults - they've already been handled
+    if ('effect' in event) return;
   }
 
   applyMetadataFilter(event: FilterEvent<number, number>) {
     this.applyFilter.emit(event as FilterEvent<TFilter, TSort>);
-    this.updateApplied++;
     this.filterSignal.set(event.filterV2);
-    this.cdRef.markForCheck();
   }
 
 
   scrollTo(jumpKey: JumpKey) {
     if (this.hasCustomSort()) return;
 
+    const keys = this.jumpBarKeys();
     let targetIndex = 0;
-    for(let i = 0; i < this.jumpBarKeys.length; i++) {
-      if (this.jumpBarKeys[i].key === jumpKey.key) break;
-      targetIndex += this.jumpBarKeys[i].size;
+    for(let i = 0; i < keys.length; i++) {
+      if (keys[i].key === jumpKey.key) break;
+      targetIndex += keys[i].size;
     }
 
-    this.virtualScroller.scrollToIndex(targetIndex, true, 0, ANIMATION_TIME_MS);
-    setTimeout(() => this.jumpbarService.saveResumePosition(this.router.url, this.virtualScroller.viewPortInfo.startIndex), ANIMATION_TIME_MS + 100);
+    this.virtualScroller()?.scrollToIndex(targetIndex, true, 0, ANIMATION_TIME_MS);
+    setTimeout(() => this.jumpbarService.saveResumePosition(this.router.url, this.virtualScroller()!.viewPortInfo.startIndex), ANIMATION_TIME_MS + 100);
   }
 
-  tryToSaveJumpKey() {
-    this.jumpbarService.saveResumePosition(this.router.url, this.virtualScroller.viewPortInfo.startIndex);
+  tryToSaveJumpKey(item: any) {
+    let name = '';
+    if (item.hasOwnProperty('sortName')) {
+      name = item.sortName;
+    } else if (item.hasOwnProperty('seriesSortName')) { // Reading List Item
+      name = item.seriesSortName;
+    } else if (item.hasOwnProperty('seriesName')) {
+      name = item.seriesName;
+    } else if (item.hasOwnProperty('name')) {
+      name = item.name;
+    } else if (item.hasOwnProperty('title')) {
+      name = item.title;
+    }
+    this.jumpbarService.saveResumeKey(this.router.url, name.charAt(0));
+    const scroller = this.virtualScroller();
+    if (scroller) {
+      this.jumpbarService.saveResumePosition(this.router.url, scroller.viewPortInfo.scrollStartPosition);
+    }
   }
 
-  protected readonly Breakpoint = Breakpoint;
+  private tryResumeScrollPosition(keysToRender: Array<JumpKey>) {
+    // Check if there is an exact scroll position to restore
+    const scrollOffset = this.jumpbarService.getResumePosition(this.router.url);
+    if (scrollOffset > 0) {
+      setTimeout(() => {
+        this.virtualScroller()?.scrollToPosition(scrollOffset, ANIMATION_TIME_MS);
+      }, 100);
+    } else {
+      const resumeKey = this.jumpbarService.getResumeKey(this.router.url);
+      if (resumeKey === '') return;
+      const keys = keysToRender.filter(k => k.key === resumeKey);
+      if (keys.length < 1) return;
+
+      setTimeout(() => this.scrollTo(keys[0]), 100);
+    }
+  }
 }

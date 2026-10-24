@@ -1,4 +1,6 @@
 import {FileTypeGroup} from "./file-type-group.enum";
+import {MetadataProvider} from "../kavitaplus/metadata-provider.enum";
+import {FolderWatchMode} from "./folder-watch-mode";
 
 export enum LibraryType {
     Manga = 0,
@@ -13,17 +15,21 @@ export enum LibraryType {
 }
 
 export const allLibraryTypes = [LibraryType.Manga, LibraryType.ComicVine, LibraryType.Comic, LibraryType.Book, LibraryType.LightNovel, LibraryType.Images];
-export const allKavitaPlusMetadataApplicableTypes = [LibraryType.Manga, LibraryType.LightNovel, LibraryType.ComicVine, LibraryType.Comic];
-export const allKavitaPlusScrobbleEligibleTypes = [LibraryType.Manga, LibraryType.LightNovel];
 
-export interface Library {
+export interface LiteLibrary {
+  id: number;
+  name: string;
+  type: LibraryType;
+}
+
+export interface Library extends LiteLibrary{
     id: number;
     name: string;
-    lastScanned: string;
     type: LibraryType;
+    lastScanned: string;
     folders: string[];
     coverImage?: string | null;
-    folderWatching: boolean;
+    folderWatchMode: FolderWatchMode;
     includeInDashboard: boolean;
     includeInRecommended: boolean;
     includeInSearch: boolean;
@@ -34,6 +40,9 @@ export interface Library {
     enableMetadata: boolean;
     removePrefixForSortName: boolean;
     collapseSeriesRelationships: boolean;
+    inheritWebLinksFromFirstChapter: boolean;
+    defaultLanguage: string;
+    metadataProvider: MetadataProvider;
     libraryFileTypes: Array<FileTypeGroup>;
     excludePatterns: Array<string>;
 }

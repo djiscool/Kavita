@@ -1,58 +1,55 @@
-import {
-  ChangeDetectionStrategy,
-  ChangeDetectorRef,
-  Component,
-  DestroyRef,
-  effect,
-  inject,
-  OnInit,
-  signal
-} from '@angular/core';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, computed, inject, OnInit, signal} from '@angular/core';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {ServerSettings} from "../_models/server-settings";
-import {
-  AbstractControl,
-  AsyncValidatorFn,
-  FormControl,
-  FormGroup,
-  ReactiveFormsModule,
-  ValidationErrors,
-  ValidatorFn
-} from "@angular/forms";
 import {SettingsService} from "../settings.service";
-import {OidcConfig} from "../_models/oidc-config";
+import {AuthorityValidationResult, OidcConfig} from "../_models/oidc-config";
 import {SettingItemComponent} from "../../settings/_components/setting-item/setting-item.component";
 import {SettingSwitchComponent} from "../../settings/_components/setting-switch/setting-switch.component";
-import {debounceTime, distinctUntilChanged, filter, map, of, switchMap, tap} from "rxjs";
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
-import {RestrictionSelectorComponent} from "../../user-settings/restriction-selector/restriction-selector.component";
+import {debounceTime, distinctUntilChanged, filter, forkJoin, skip, tap} from "rxjs";
+import {toObservable} from "@angular/core/rxjs-interop";
 import {AgeRatingPipe} from "../../_pipes/age-rating.pipe";
 import {MetadataService} from "../../_services/metadata.service";
 import {AgeRating} from "../../_models/metadata/age-rating";
 import {AgeRatingDto} from "../../_models/metadata/age-rating-dto";
-import {allRoles, Role} from "../../_services/account.service";
+import {AccountService, allRoles, Role} from "../../_services/account.service";
 import {Library} from "../../_models/library/library";
 import {LibraryService} from "../../_services/library.service";
-import {LibrarySelectorComponent} from "../library-selector/library-selector.component";
-import {RoleSelectorComponent} from "../role-selector/role-selector.component";
-import {ToastrService} from "ngx-toastr";
+import {ToastrService} from '@openng/ngx-toastr';
 import {SafeHtmlPipe} from "../../_pipes/safe-html.pipe";
 import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
-import {TagBadgeComponent} from "../../shared/tag-badge/tag-badge.component";
+import {
+  MultiCheckBoxItem,
+  SettingMultiCheckBox
+} from "../../settings/_components/setting-multi-check-box/setting-multi-check-box.component";
+import {
+  SettingMultiTextFieldComponent
+} from "../../settings/_components/setting-multi-text-field/setting-multi-text-field.component";
+import {SlicePipe} from "@angular/common";
+import {NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
+import {ConfirmService} from "../../shared/confirm.service";
+import {AuthorityValidationResultPipe} from "../../_pipes/authority-validation-result.pipe";
+import {FormFieldDirective} from "../../_directives/form-field.directive";
+import {disabled, form, FormField, metadata, validateAsync} from "@angular/forms/signals";
+import {SettingSelectComponent} from "../../settings/_components/setting-enum-select/setting-select.component";
+import {REQUIRED_IF_NAME, requiredIf} from "../../_validators/requiredIf.validator";
+import {url} from "../../_validators/url.validator";
 
 @Component({
   selector: 'app-manage-open-idconnect',
   imports: [
     TranslocoDirective,
-    ReactiveFormsModule,
     SettingItemComponent,
     SettingSwitchComponent,
     AgeRatingPipe,
-    LibrarySelectorComponent,
-    RoleSelectorComponent,
     SafeHtmlPipe,
     DefaultValuePipe,
-    TagBadgeComponent
+    SettingMultiCheckBox,
+    SettingMultiTextFieldComponent,
+    SlicePipe,
+    NgbTooltip,
+    FormFieldDirective,
+    FormField,
+    SettingSelectComponent
   ],
   templateUrl: './manage-open-idconnect.component.html',
   styleUrl: './manage-open-idconnect.component.scss',
@@ -62,91 +59,156 @@ export class ManageOpenIDConnectComponent implements OnInit {
 
   private readonly settingsService = inject(SettingsService);
   private readonly cdRef = inject(ChangeDetectorRef);
-  private readonly destroyRef = inject(DestroyRef);
   private readonly metadataService = inject(MetadataService);
   private readonly toastr = inject(ToastrService);
+  private readonly accountService = inject(AccountService);
+  private readonly libraryService = inject(LibraryService);
+  private readonly confirmService = inject(ConfirmService);
+
+  private readonly authorityValidationResultPipe = new AuthorityValidationResultPipe();
 
   serverSettings!: ServerSettings;
-  settingsForm: FormGroup = new FormGroup({});
 
-  oidcSettings = signal<OidcConfig | undefined>(undefined);
-  ageRatings = signal<AgeRatingDto[]>([]);
-  selectedLibraries = signal<number[]>([]);
-  selectedRoles = signal<string[]>([]);
+  formModel = signal<OidcConfig>({
+    authority: "",
+    autoLogin: false,
+    clientId: "",
+    customScopes: [],
+    defaultAgeRestriction: AgeRating.NotApplicable,
+    defaultIncludeUnknowns: false,
+    defaultLibraries: [],
+    defaultRoles: [],
+    disablePasswordAuthentication: false,
+    enabled: false,
+    providerName: "",
+    provisionAccounts: false,
+    requireVerifiedEmail: false,
+    rolesClaim: "",
+    rolesPrefix: "",
+    secret: "",
+    syncUserSettings: false
 
-  ngOnInit(): void {
-    this.metadataService.getAllAgeRatings().subscribe(ratings => {
-      this.ageRatings.set(ratings);
-    });
+  });
+  formGroup = form(this.formModel, (path) => {
+    disabled(path, {when: () => !this.accountService.hasAdminRole()});
 
-    this.settingsService.getServerSettings().subscribe({
-      next: data => {
-        this.serverSettings = data;
-        this.oidcSettings.set(this.serverSettings.oidcConfig);
-        this.selectedRoles.set(this.serverSettings.oidcConfig.defaultRoles);
-        this.selectedLibraries.set(this.serverSettings.oidcConfig.defaultLibraries);
+    url(path.authority, { requireTls: true });
+    metadata(path.authority, REQUIRED_IF_NAME, () => translate('manage-oidc-connect.authority-label'));
+    validateAsync(path.authority, {
+      params: ({value}) => {
+        const url = value();
+        if (url == null || !url || url.trim().length === 0) {
+          return undefined;
+        }
+        return url;
+      },
+      factory: (authority) => {
+        return this.settingsService.validAuthorityRsc(authority);
+      },
+      onError: error => {},
+      onSuccess: result => {
+        if (result === AuthorityValidationResult.Success || result === AuthorityValidationResult.NotApplicable) {
+          return null;
+        }
 
-        this.settingsForm.addControl('authority', new FormControl(this.serverSettings.oidcConfig.authority, [], [this.authorityValidator()]));
-        this.settingsForm.addControl('clientId', new FormControl(this.serverSettings.oidcConfig.clientId, [this.requiredIf('authority')]));
-        this.settingsForm.addControl('secret', new FormControl(this.serverSettings.oidcConfig.secret, [this.requiredIf('authority')]));
-        this.settingsForm.addControl('provisionAccounts', new FormControl(this.serverSettings.oidcConfig.provisionAccounts, []));
-        this.settingsForm.addControl('requireVerifiedEmail', new FormControl(this.serverSettings.oidcConfig.requireVerifiedEmail, []));
-        this.settingsForm.addControl('syncUserSettings', new FormControl(this.serverSettings.oidcConfig.syncUserSettings, []));
-        this.settingsForm.addControl('rolesPrefix', new FormControl(this.serverSettings.oidcConfig.rolesPrefix, []));
-        this.settingsForm.addControl('rolesClaim', new FormControl(this.serverSettings.oidcConfig.rolesClaim, []));
-        this.settingsForm.addControl('autoLogin', new FormControl(this.serverSettings.oidcConfig.autoLogin, []));
-        this.settingsForm.addControl('disablePasswordAuthentication', new FormControl(this.serverSettings.oidcConfig.disablePasswordAuthentication, []));
-        this.settingsForm.addControl('providerName', new FormControl(this.serverSettings.oidcConfig.providerName, []));
-        this.settingsForm.addControl("defaultAgeRestriction", new FormControl(this.serverSettings.oidcConfig.defaultAgeRestriction, []));
-        this.settingsForm.addControl('defaultIncludeUnknowns', new FormControl(this.serverSettings.oidcConfig.defaultIncludeUnknowns, []));
-        this.settingsForm.addControl('customScopes', new FormControl(this.serverSettings.oidcConfig.customScopes.join(","), []))
-        this.cdRef.markForCheck();
-
-        this.settingsForm.valueChanges.pipe(
-          debounceTime(300),
-          distinctUntilChanged(),
-          takeUntilDestroyed(this.destroyRef),
-          filter(() => {
-            // Do not auto save when provider settings have changed
-            const settings: OidcConfig = this.settingsForm.getRawValue();
-            return settings.authority == this.oidcSettings()?.authority && settings.clientId == this.oidcSettings()?.clientId;
-          }),
-          tap(() => this.save())
-        ).subscribe();
+        return {
+          kind: 'backendFailure',
+          message: this.authorityValidationResultPipe.transform(result),
+        }
       }
     });
+
+    requiredIf(path.clientId, path.authority);
+    requiredIf(path.secret, path.authority);
+  });
+
+  loading = signal(true);
+  oidcSettings = signal<OidcConfig | undefined>(undefined);
+  ageRatings = signal<AgeRatingDto[]>([]);
+  libraries = signal<Library[]>([]);
+  libraryOptions = computed(() => this.libraries().map(l => {
+    return { label: l.name, value: l.id };
+  }));
+  roles = signal<Role[]>(allRoles);
+  roleOptions: MultiCheckBoxItem<Role>[] = allRoles.map(r => {
+    return { label: r, value: r, disableFunc: (r, selected) => {
+      return r !== Role.Admin && selected.includes(Role.Admin);
+    }}
+  });
+  autoSavingBlocked = signal(false);
+
+  constructor() {
+    toObservable(this.formModel).pipe(
+      skip(2),
+      debounceTime(300),
+      distinctUntilChanged(),
+      filter(() => this.formGroup().valid()),
+      filter(() => {
+        const settings: OidcConfig = this.packData().oidcConfig;
+        const autoSave = settings.authority == this.oidcSettings()?.authority && settings.clientId == this.oidcSettings()?.clientId;
+
+        this.autoSavingBlocked.set(!autoSave);
+        return autoSave;
+      }),
+      tap(() => this.save())
+    ).subscribe();
   }
 
-  updateRoles(roles: string[]) {
-    this.selectedRoles.set(roles);
-    this.save();
+  ngOnInit(): void {
+    forkJoin([
+      this.metadataService.getAllAgeRatings(),
+      this.settingsService.getServerSettings(),
+      this.libraryService.getLibraries(),
+    ]).subscribe(([ageRatings, settings, libraries]) => {
+      this.ageRatings.set(ageRatings);
+      this.libraries.set(libraries);
+
+      this.serverSettings = settings;
+      this.formModel.set(this.serverSettings.oidcConfig);
+      this.oidcSettings.set(this.serverSettings.oidcConfig);
+
+      this.loading.set(false);
+    })
   }
 
-  updateLibraries(libraries: Library[]) {
-    this.selectedLibraries.set(libraries.map(l => l.id));
-    this.save();
-  }
-
-  save(showConfirmation: boolean = false) {
-    if (!this.settingsForm.valid || !this.serverSettings || !this.oidcSettings) return;
-
-    const data = this.settingsForm.getRawValue();
+  private packData(): ServerSettings {
     const newSettings = Object.assign({}, this.serverSettings);
-    newSettings.oidcConfig = data as OidcConfig;
-    newSettings.oidcConfig.defaultAgeRestriction = parseInt(newSettings.oidcConfig.defaultAgeRestriction + '', 10) as AgeRating;
-    newSettings.oidcConfig.defaultRoles = this.selectedRoles();
-    newSettings.oidcConfig.defaultLibraries = this.selectedLibraries();
-    newSettings.oidcConfig.customScopes = (data.customScopes as string)
-      .split(',').map((item: string) => item.trim())
-      .filter((scope: string) => scope.length > 0);
+    newSettings.oidcConfig = {
+      ...this.formModel(),
+      enabled: false,
+    };
+    return newSettings;
+  }
 
+  async resetIds() {
+    if (!await this.confirmService.confirm(translate('manage-oidc-connect.reset-confirm'))) {
+      return;
+    }
+
+    this.settingsService.clearExternalIds().subscribe(() => this.toastr.info(translate('manage-oidc-connect.reset-success')))
+
+
+  }
+
+  save(showToasts: boolean = false) {
+    if (!this.formGroup().valid()) {
+      if (showToasts) {
+        this.toastr.error(translate('errors.invalid-form'));
+      }
+
+      return;
+    }
+
+    if (!this.serverSettings || !this.oidcSettings()) return;
+
+    const newSettings = this.packData();
     this.settingsService.updateServerSettings(newSettings).subscribe({
       next: data => {
         this.serverSettings = data;
         this.oidcSettings.set(data.oidcConfig);
         this.cdRef.markForCheck();
 
-        if (showConfirmation) {
+        if (showToasts) {
           this.toastr.success(translate('manage-oidc-connect.save-success'))
         }
       },
@@ -155,52 +217,6 @@ export class ManageOpenIDConnectComponent implements OnInit {
         this.toastr.error(translate('errors.generic'))
       }
     })
-  }
-
-  breakString(s: string) {
-    if (s) {
-      return s.split(',');
-    }
-
-    return [];
-  }
-
-  authorityValidator(): AsyncValidatorFn {
-    return (control: AbstractControl) => {
-      let uri: string = control.value;
-      if (!uri || uri.trim().length === 0) {
-        return of(null);
-      }
-
-      try {
-        new URL(uri);
-      } catch {
-        return of({'invalidUri': {'uri': uri}} as ValidationErrors)
-      }
-
-      return this.settingsService.ifValidAuthority(uri).pipe(map(ok => {
-        if (ok) return null;
-
-        return {'invalidUri': {'uri': uri}} as ValidationErrors;
-      }));
-    }
-  }
-
-  requiredIf(other: string): ValidatorFn {
-    return (control): ValidationErrors | null => {
-      const otherControl = this.settingsForm.get(other);
-      if (!otherControl) return null;
-
-      if (otherControl.invalid) return null;
-
-      const v = otherControl.value;
-      if (!v || v.length === 0) return null;
-
-      const own = control.value;
-      if (own && own.length > 0) return null;
-
-      return {'requiredIf': {'other': other, 'otherValue': v}}
-    }
   }
 
 }

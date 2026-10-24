@@ -1,32 +1,31 @@
-import {
-  ChangeDetectionStrategy,
-  ChangeDetectorRef,
-  Component, computed,
-  effect, inject,
-  OnInit,
-  signal
-} from '@angular/core';
-import { FormGroup, FormControl, Validators, ReactiveFormsModule } from '@angular/forms';
+import {ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal} from '@angular/core';
 import {ActivatedRoute, Router, RouterLink} from '@angular/router';
-import { ToastrService } from 'ngx-toastr';
-import { take } from 'rxjs/operators';
-import { AccountService } from '../../_services/account.service';
-import { MemberService } from '../../_services/member.service';
-import { NavService } from '../../_services/nav.service';
-import { SplashContainerComponent } from '../_components/splash-container/splash-container.component';
+import {ToastrService} from '@openng/ngx-toastr';
+import {AccountService} from '../../_services/account.service';
+import {MemberService} from '../../_services/member.service';
+import {NavService} from '../../_services/nav.service';
+import {SplashContainerComponent} from '../_components/splash-container/splash-container.component';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {environment} from "../../../environments/environment";
 import {ImageComponent} from "../../shared/image/image.component";
-import { SettingsService } from 'src/app/admin/settings.service';
 import {OidcPublicConfig} from "../../admin/_models/oidc-config";
+import {SettingsService} from "../../admin/settings.service";
+import {ValidationErrorsComponent} from "../../shared/_components/validation-errors/validation-errors.component";
+import {FormFieldDirective} from "../../_directives/form-field.directive";
+import {form, FormField, FormRoot, required} from "@angular/forms/signals";
 
+interface LoginFormModel {
+  username: string;
+  password: string;
+}
 
 @Component({
-    selector: 'app-user-login',
-    templateUrl: './user-login.component.html',
-    styleUrls: ['./user-login.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SplashContainerComponent, ReactiveFormsModule, RouterLink, TranslocoDirective, ImageComponent]
+  selector: 'app-user-login',
+  templateUrl: './user-login.component.html',
+  styleUrls: ['./user-login.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [SplashContainerComponent, RouterLink, TranslocoDirective, ImageComponent,
+    ValidationErrorsComponent, FormFieldDirective, FormField, FormRoot]
 })
 export class UserLoginComponent implements OnInit {
 
@@ -35,16 +34,23 @@ export class UserLoginComponent implements OnInit {
   private readonly memberService = inject(MemberService);
   private readonly toastr = inject(ToastrService);
   private readonly navService = inject(NavService);
-  private readonly cdRef = inject(ChangeDetectorRef);
   private readonly route = inject(ActivatedRoute);
   protected readonly settingsService = inject(SettingsService);
 
-  baseUrl = environment.apiUrl;
+  baseUrl = environment.apiUrl.substring(0, environment.apiUrl.indexOf('api'));
 
-  loginForm: FormGroup = new FormGroup({
-      username: new FormControl('', [Validators.required]),
-      password: new FormControl('', [Validators.required, Validators.maxLength(256), Validators.minLength(6), Validators.pattern("^.{6,256}$")])
+  formModel = signal<LoginFormModel>({
+    username: '',
+    password: '',
   });
+  formGroup = form(this.formModel, (path) => {
+    required(path.username);
+    required(path.password);
+    // For login screen, we hide validation
+    // maxLength(path.password, 256);
+    // minLength(path.password, 6);
+  });
+
 
   /**
    * Used for first time the page loads to ensure no flashing
@@ -55,11 +61,6 @@ export class UserLoginComponent implements OnInit {
    * undefined until query params are read
    */
   skipAutoLogin = signal<boolean | undefined>(undefined);
-  /**
-   * Display the login form, regardless if the password authentication is disabled (admins can still log in)
-   * Set from query
-   */
-  forceShowPasswordLogin = signal(false);
   oidcConfig = signal<OidcPublicConfig | undefined>(undefined);
 
   /**
@@ -68,15 +69,10 @@ export class UserLoginComponent implements OnInit {
   showPasswordLogin = computed(() => {
     const loaded = this.isLoaded();
     const config = this.oidcConfig();
-    const force = this.forceShowPasswordLogin();
-    if (force) return true;
 
-    return loaded && config && !config.disablePasswordAuthentication;
+    return loaded && config && !(config.enabled && config.disablePasswordAuthentication);
   });
-  showOidcButton = computed(() => {
-    const config = this.oidcConfig();
-    return config && config.enabled;
-  });
+  showOidcButton = computed(() => this.oidcConfig()?.enabled ?? false);
 
   constructor() {
     this.navService.hideNavBar();
@@ -86,27 +82,26 @@ export class UserLoginComponent implements OnInit {
       const skipAutoLogin = this.skipAutoLogin();
       const oidcConfig = this.oidcConfig();
 
-      if (!oidcConfig || skipAutoLogin === undefined) return;
+      if (!oidcConfig || !oidcConfig.enabled || skipAutoLogin === undefined) return;
 
       if (oidcConfig.autoLogin && !skipAutoLogin) {
-        window.location.href = '/oidc/login';
+        window.location.href = this.baseUrl + 'oidc/login';
       }
+    });
+
+    effect(() => {
+      const user = this.accountService.currentUser();
+      if (!user) return;
+      this.navService.handleLogin();
     });
   }
 
   ngOnInit(): void {
-    this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
-      if (user) {
-        this.navService.handleLogin()
-        this.cdRef.markForCheck();
-      }
-    });
-
     this.settingsService.getPublicOidcConfig().subscribe(config => {
       this.oidcConfig.set(config);
     });
 
-    this.memberService.adminExists().pipe(take(1)).subscribe(adminExists => {
+    this.memberService.adminExists().subscribe(adminExists => {
       if (!adminExists) {
         this.router.navigateByUrl('registration/register');
         return;
@@ -123,7 +118,6 @@ export class UserLoginComponent implements OnInit {
       }
 
       this.skipAutoLogin.set(params.get('skipAutoLogin') === 'true')
-      this.forceShowPasswordLogin.set(params.get('forceShowPassword') === 'true');
 
       const error = params.get('error');
       if (!error) return;
@@ -138,12 +132,15 @@ export class UserLoginComponent implements OnInit {
 
 
   login(apiKey: string = '') {
-    const model = this.loginForm.getRawValue();
-    model.apiKey = apiKey;
+    const model = {
+      ...this.formModel(),
+      apiKey
+    };
+
     this.isSubmitting.set(true);
     this.accountService.login(model).subscribe({
       next: () => {
-          this.loginForm.reset();
+          this.formGroup().reset();
           this.navService.handleLogin()
 
           this.isSubmitting.set(false);

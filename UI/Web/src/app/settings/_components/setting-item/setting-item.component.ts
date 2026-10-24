@@ -1,147 +1,180 @@
 import {
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
-  ContentChild,
+  computed,
+  contentChild,
+  DestroyRef,
+  effect,
   ElementRef,
-  EventEmitter,
   HostListener,
   inject,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChange,
-  SimpleChanges,
-  TemplateRef
+  input,
+  model,
+  signal,
+  TemplateRef,
+  viewChild
 } from '@angular/core';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {TranslocoDirective} from "@jsverse/transloco";
-import {NgClass, NgTemplateOutlet} from "@angular/common";
+import {NgTemplateOutlet} from "@angular/common";
 import {SafeHtmlPipe} from "../../../_pipes/safe-html.pipe";
 import {filter, fromEvent, tap} from "rxjs";
-import {AbstractControl} from "@angular/forms";
+import {ValidationErrorsComponent} from "../../../shared/_components/validation-errors/validation-errors.component";
+import {AnyField, toFieldView} from "../../../shared/_models/field-view";
+import {generateUniqueId} from "../../../_helpers/random";
+import {wireSettingControl} from "../../../_helpers/setting-item";
+
 
 @Component({
-    selector: 'app-setting-item',
-    imports: [
-        TranslocoDirective,
-        NgTemplateOutlet,
-        SafeHtmlPipe,
-        NgClass
-    ],
-    templateUrl: './setting-item.component.html',
-    styleUrl: './setting-item.component.scss',
-    changeDetection: ChangeDetectionStrategy.OnPush
+  selector: 'app-setting-item',
+  imports: [
+    TranslocoDirective,
+    NgTemplateOutlet,
+    SafeHtmlPipe,
+    ValidationErrorsComponent
+  ],
+  templateUrl: './setting-item.component.html',
+  styleUrl: './setting-item.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class SettingItemComponent implements OnChanges {
+export class SettingItemComponent {
 
-  private readonly cdRef = inject(ChangeDetectorRef);
   private readonly elementRef = inject(ElementRef);
+  private readonly destroyRef = inject(DestroyRef);
 
-  @Input({required:true}) title: string = '';
-  @Input() editLabel: string | undefined = undefined;
-  @Input() canEdit: boolean = true;
-  @Input() showEdit: boolean = true;
-  @Input() isEditMode: boolean = false;
-  @Input() subtitle: string | undefined = undefined;
-  @Input() labelId: string | undefined = undefined;
-  @Input() toggleOnViewClick: boolean = true;
+  title = input.required<string>();
+  editLabel = input<string | undefined>();
+  canEdit = input(true);
+  showEdit = input(true);
+  isEditMode = model(false);
+  subtitle = input<string | undefined>();
+  /* Required for accessibility, esp validations */
+  labelId = input<string | undefined>();
+  toggleOnViewClick = input(true);
   /**
    * When true, the hover animation will not be present and the titleExtras will be always visible
    */
-  @Input() fixedExtras: boolean = false;
-  @Input() control: AbstractControl<any> | null = null;
-  @Output() editMode = new EventEmitter<boolean>();
+  fixedExtras = input(false);
+  control = input<AnyField | null>(null);
+  /** Custom validation messages */
+  validations = input<Record<string, string>>({});
+
+  /**
+   * When true, allows click events to bubble up to components within
+   */
+  allowClickEvents = input(false);
 
   /**
    * Extra information to show next to the title
    */
-  @ContentChild('titleExtra') titleExtraRef!: TemplateRef<any>;
+  titleExtraRef = contentChild<TemplateRef<any>>('titleExtra');
   /**
    * View in View mode
    */
-  @ContentChild('view') valueViewRef!: TemplateRef<any>;
+  valueViewRef = contentChild<TemplateRef<any>>('view');
   /**
    * View in Edit mode
    */
-  @ContentChild('edit') valueEditRef!: TemplateRef<any>;
+  valueEditRef = contentChild<TemplateRef<any>>('edit');
   /**
    * Extra button controls to show instead of Edit
    */
-  @ContentChild('titleActions') titleActionsRef!: TemplateRef<any>;
+  titleActionsRef = contentChild<TemplateRef<any>>('titleActions');
+
+  private readonly editWrapper = viewChild<ElementRef<HTMLElement>>('editWrapper');
+  private readonly viewWrapper = viewChild<ElementRef<HTMLElement>>('viewWrapper');
+
+  /** Where we search for inputs from **/
+  private readonly wrapperScope = computed(() =>
+    this.editWrapper()?.nativeElement ?? this.viewWrapper()?.nativeElement ?? null
+  );
+  private readonly generatedId = signal<string>(generateUniqueId());
+  /** A unique id to wire id up */
+  readonly elementId = computed(() => {
+    return this.labelId() || this.generatedId();
+  });
+
+  private readonly controlView = toFieldView(this.control, this.destroyRef);
+
+  protected readonly hasControl = wireSettingControl({
+    scope: this.wrapperScope,
+    elementId: this.elementId,
+    describeValidation: computed(() => this.control() !== null),
+    label: this.title,
+  }).hasControl;
+
+
+
 
   @HostListener('click', ['$event'])
   onClickInside(event: MouseEvent) {
+    if (this.allowClickEvents()) return;
+
     event.stopPropagation(); // Prevent the click from bubbling up
   }
 
-  constructor(elementRef: ElementRef) {
-    if (!this.toggleOnViewClick) return;
+  constructor() {
 
-    fromEvent(window, 'click')
-      .pipe(
-        filter((event: Event) => {
-          if (!this.toggleOnViewClick) return false;
-          if (this.control != null && this.control.invalid) return false;
 
-          const mouseEvent = event as MouseEvent;
-          const selection = window.getSelection();
-          const hasSelection = selection !== null && selection.toString().trim() === '';
-          return !elementRef.nativeElement.contains(mouseEvent.target) && hasSelection;
-        }),
-        tap(() => {
-          this.isEditMode = false;
-          this.editMode.emit(this.isEditMode);
-          this.cdRef.markForCheck();
-        })
-      )
-      .subscribe();
-  }
+    if (this.toggleOnViewClick()) {
+      fromEvent(window, 'click')
+        .pipe(
+          takeUntilDestroyed(this.destroyRef),
+          filter((event: Event) => {
+            if (!this.toggleOnViewClick()) return false;
+            if (this.controlView.invalid()) return false;
 
-  ngOnChanges(changes: SimpleChanges) {
-    if (changes.hasOwnProperty('isEditMode')) {
-      const change = changes.isEditMode as SimpleChange;
-      if (change.isFirstChange()) return;
+            const mouseEvent = event as MouseEvent;
+            const selection = window.getSelection();
+            const hasSelection = selection !== null && selection.toString().trim() === '';
+            return !this.elementRef.nativeElement.contains(mouseEvent.target) && hasSelection;
+          }),
+          tap(() => {
+            this.isEditMode.set(false);
+          })
+        )
+        .subscribe();
+    }
 
-      if (!this.toggleOnViewClick) return;
-      if (!this.canEdit) return;
-      if (this.control != null && this.control.invalid) return;
-
-      this.isEditMode = change.currentValue;
-      this.cdRef.markForCheck();
+    let initialized = false;
+    effect(() => {
+      const editMode = this.isEditMode();
+      if (!initialized) { initialized = true; return; }
+      if (!editMode) return;
+      if (!this.toggleOnViewClick()) return;
+      if (!this.canEdit()) return;
+      if (this.controlView.invalid()) return;
 
       this.focusInput();
-    }
+    });
+
+    effect(() => {
+      if (!this.controlView.invalid()) return;
+      if (!this.showEdit() || this.valueEditRef() == null) return;
+
+      this.isEditMode.set(true);
+    });
   }
 
   toggleEditMode() {
+    if (!this.toggleOnViewClick()) return;
+    if (!this.canEdit()) return;
+    if (this.controlView.invalid()) return;
 
-    if (!this.toggleOnViewClick) return;
-    if (!this.canEdit) return;
-    if (this.control != null && this.control.invalid) return;
-
-    this.isEditMode = !this.isEditMode;
-    this.editMode.emit(this.isEditMode);
+    this.isEditMode.set(!this.isEditMode());
     this.focusInput();
-    this.cdRef.markForCheck();
   }
 
   focusInput() {
-    if (this.isEditMode) {
+    if (!this.isEditMode()) return;
 
-
-      setTimeout(() => {
-        const inputElem = this.findFirstInput();
-        if (inputElem) {
-          inputElem.focus();
-        }
-      }, 10);
-    }
+    setTimeout(() => this.findFirstControl(this.wrapperScope())?.focus(), 10);
   }
 
-  private findFirstInput(): HTMLInputElement | null {
-    const nativeInputs = [...this.elementRef.nativeElement.querySelectorAll('input'), ...this.elementRef.nativeElement.querySelectorAll('select'), ...this.elementRef.nativeElement.querySelectorAll('textarea')];
-    if (nativeInputs.length === 0) return null;
+  private findFirstControl(scope: HTMLElement | null): HTMLElement | null {
+    if (!scope) return null;
 
-    return nativeInputs[0];
+    return scope.querySelector<HTMLElement>('input:not([type=hidden]), select, textarea');
   }
+
 }

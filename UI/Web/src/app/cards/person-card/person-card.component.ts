@@ -2,19 +2,14 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  ContentChild,
-  DestroyRef,
-  EventEmitter,
+  contentChild,
   HostListener,
-  inject,
-  Input,
-  Output,
+  inject, input,
+  output, signal,
   TemplateRef
 } from '@angular/core';
-import {ActionItem} from "../../_services/action-factory.service";
 import {ImageService} from "../../_services/image.service";
 import {BulkSelectionService} from "../bulk-selection.service";
-import {MessageHubService} from "../../_services/message-hub.service";
 import {ScrollService} from "../../_services/scroll.service";
 import {NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
 import {CardActionablesComponent} from "../../_single-module/card-actionables/card-actionables.component";
@@ -24,6 +19,7 @@ import {Person} from "../../_models/metadata/person";
 import {FormsModule} from "@angular/forms";
 import {ImageComponent} from "../../shared/image/image.component";
 import {TranslocoDirective} from "@jsverse/transloco";
+import {ActionItem} from "../../_models/actionables/action-item";
 
 
 @Component({
@@ -40,94 +36,90 @@ import {TranslocoDirective} from "@jsverse/transloco";
     styleUrl: './person-card.component.scss',
     changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class PersonCardComponent {
+export class PersonCardComponent<T extends Person> {
 
-  private readonly destroyRef = inject(DestroyRef);
   public readonly imageService = inject(ImageService);
   public readonly bulkSelectionService = inject(BulkSelectionService);
-  private readonly messageHub = inject(MessageHubService);
   private readonly scrollService = inject(ScrollService);
   private readonly cdRef = inject(ChangeDetectorRef);
 
   /**
    * Card item url. Will internally handle error and missing covers
    */
-  @Input() imageUrl = '';
+  imageUrl = input('');
   /**
    * Name of the card
    */
-  @Input() title = '';
+  title = input('');
   /**
    * If the entity is selected or not.
    */
-  @Input() selected: boolean = false;
+  selected = input(false);
   /**
    * Any actions to perform on the card
    */
-  @Input() actions: ActionItem<any>[] = [];
+  actions = input<ActionItem<T>[]>([]);
   /**
    * This is the entity we are representing. It will be returned if an action is executed.
    */
-  @Input({required: true}) entity!: BrowsePerson | Person;
+  entity = input.required<T>();
   /**
    * If the entity should show selection code
    */
-  @Input() allowSelection: boolean = false;
+  allowSelection = input(false);
   /**
    * The number of updates/items within the card. If less than 2, will not be shown.
    */
-  @Input() count: number = 0;
+  count = input(0);
   /**
    * Event emitted when item is clicked
    */
-  @Output() clicked = new EventEmitter<string>();
+  readonly clicked = output<string>();
   /**
    * When the card is selected.
    */
-  @Output() selection = new EventEmitter<boolean>();
-  @ContentChild('subtitle') subtitleTemplate!: TemplateRef<any>;
+  readonly selection = output<boolean>();
+  subtitleTemplate = contentChild<TemplateRef<any>>('subtitle');
 
-  tooltipTitle: string = this.title;
   /**
    * Handles touch events for selection on mobile devices
    */
-  prevTouchTime: number = 0;
+  prevTouchTime = signal(0);
   /**
    * Handles touch events for selection on mobile devices to ensure you aren't touch scrolling
    */
-  prevOffset: number = 0;
-  selectionInProgress: boolean = false;
+  prevOffset = signal(0);
+  selectionInProgress = signal(false);
 
   @HostListener('touchmove', ['$event'])
   onTouchMove(event: TouchEvent) {
-    if (!this.allowSelection) return;
+    if (!this.allowSelection()) return;
 
-    this.selectionInProgress = false;
-    this.cdRef.markForCheck();
+    this.selectionInProgress.set(false);
   }
 
   @HostListener('touchstart', ['$event'])
   onTouchStart(event: TouchEvent) {
-    if (!this.allowSelection) return;
+    if (!this.allowSelection()) return;
 
-    this.prevTouchTime = event.timeStamp;
-    this.prevOffset = this.scrollService.scrollPosition;
-    this.selectionInProgress = true;
+    this.prevTouchTime.set(event.timeStamp);
+    this.prevOffset.set(this.scrollService.scrollPosition);
+    this.selectionInProgress.set(true);
   }
 
   @HostListener('touchend', ['$event'])
   onTouchEnd(event: TouchEvent) {
     if (!this.allowSelection) return;
-    const delta = event.timeStamp - this.prevTouchTime;
+    const delta = event.timeStamp - this.prevTouchTime();
     const verticalOffset = this.scrollService.scrollPosition;
 
-    if (delta >= 300 && delta <= 1000 && (verticalOffset === this.prevOffset) && this.selectionInProgress) {
+    if (delta >= 300 && delta <= 1000 && (verticalOffset === this.prevOffset()) && this.selectionInProgress()) {
       this.handleSelection();
       event.stopPropagation();
       event.preventDefault();
     }
-    this.prevTouchTime = 0;
-    this.selectionInProgress = false;
+    this.prevTouchTime.set(0);
+    this.selectionInProgress.set(false);
   }
 
 
@@ -136,7 +128,8 @@ export class PersonCardComponent {
       this.handleSelection();
       return;
     }
-    this.clicked.emit(this.title);
+
+    this.clicked.emit(this.title());
   }
 
 
@@ -144,8 +137,7 @@ export class PersonCardComponent {
     if (event) {
       event.stopPropagation();
     }
-    this.selection.emit(this.selected);
-    this.cdRef.detectChanges();
+    this.selection.emit(this.selected());
   }
 
 }

@@ -1,6 +1,9 @@
-import {ChangeDetectionStrategy, Component, computed, EventEmitter, input, OnInit, Output} from '@angular/core';
+import {ChangeDetectionStrategy, Component, computed, input, signal, output} from '@angular/core';
 import {ContentChange, QuillEditorComponent, QuillFormat} from "ngx-quill";
-import {FormGroup, ReactiveFormsModule} from "@angular/forms";
+import type QuillType from 'quill'
+import {FieldTree, FormField} from "@angular/forms/signals";
+import {NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
+import {TranslocoDirective} from "@jsverse/transloco";
 
 export enum QuillTheme {
   Snow = 'snow',
@@ -48,6 +51,10 @@ export interface ToolbarItem {
    * Pass an **empty** array to use the quill defaults
    */
   values?: string[];
+  /**
+   * An optional translation key for a tooltip
+   */
+  tooltipTranslationKey?: string
 }
 
 // There is very little documentation to what values are possible.
@@ -77,7 +84,7 @@ const defaultToolbarItems: ToolbarItem[][] = [
   ],
 
   [
-    {key: QuillToolbarKey.Clean},
+    {key: QuillToolbarKey.Clean, tooltipTranslationKey: 'clean-tooltip'},
   ]
 ];
 
@@ -89,7 +96,9 @@ const defaultToolbarItems: ToolbarItem[][] = [
   selector: 'app-quill-wrapper',
   imports: [
     QuillEditorComponent,
-    ReactiveFormsModule,
+    FormField,
+    NgbTooltip,
+    TranslocoDirective,
   ],
   templateUrl: './quill-wrapper.component.html',
   styleUrl: './quill-wrapper.component.scss',
@@ -109,13 +118,18 @@ export class QuillWrapperComponent {
    */
   theme = input(QuillTheme.Snow);
 
-  formGroup = input.required<FormGroup>();
-  controlName = input.required<string>();
+  /**
+   * The field holding the editor content
+   */
+  field = input.required<FieldTree<object>>();
 
   /**
    * Deligation of the quill onContentChange event
    */
-  @Output() contentChanged = new EventEmitter<ContentChange>();
+  readonly contentChanged = output<{
+    raw: ContentChange;
+    html?: string;
+}>();
 
   /**
    * Items to show in the toolbar
@@ -152,5 +166,15 @@ export class QuillWrapperComponent {
       .map(group => group.filter(item => !blackList.includes(item.key)))
       .filter(group => group.length > 0);
   });
+
+  editor = signal<QuillType | undefined>(undefined);
+
+  onContentChange($event: ContentChange) {
+    const quill = this.editor();
+    this.contentChanged.emit({
+      raw: $event,
+      html: quill?.getSemanticHTML() ?? '',
+    })
+  }
 
 }

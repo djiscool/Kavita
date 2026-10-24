@@ -1,13 +1,16 @@
-import { Pipe, PipeTransform } from '@angular/core';
+import {Pipe, PipeTransform} from '@angular/core';
 
+/**
+ * @deprecated Use signals instead - _helpers/filtered.ts
+ */
 @Pipe({
   name: 'filter',
   pure: false,
   standalone: true
 })
-export class FilterPipe implements PipeTransform {
+export class FilterPipe<T> implements PipeTransform {
 
-  transform(items: any[], callback: (item: any) => boolean): any {
+  transform(items: T[], callback: (item: T) => boolean): T[] {
     if (!items || !callback) {
         return items;
     }

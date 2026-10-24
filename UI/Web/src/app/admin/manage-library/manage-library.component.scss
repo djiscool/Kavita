@@ -1,22 +1,9 @@
 @use "../../../theme/variables" as theme;
 
 .custom-position {
-    right: 15px;
-    top: -42px;
+    right: 0.9375rem;
+    top: -3.75rem;
 }
-
-.custom-position-2 {
-  right: 160px;
-  top: -42px;
-}
-
-@media(max-width: 576px) {
-  .custom-position-2 {
-    right: 65px;
-  }
-}
-
-
 
 .member-name {
     word-break: keep-all;
@@ -42,7 +29,7 @@
             justify-content: center;
         }
         .btn {
-            width: 32px;
+            width: 2rem;
         }
     }
 }

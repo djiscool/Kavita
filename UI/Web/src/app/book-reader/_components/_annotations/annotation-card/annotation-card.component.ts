@@ -2,17 +2,17 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  EventEmitter,
+  effect,
   inject,
   input,
   model,
-  Output,
+  output,
+  signal,
   Signal
 } from '@angular/core';
 import {Annotation} from "../../../_models/annotations/annotation";
-import {UtcToLocaleDatePipe} from "../../../../_pipes/utc-to-locale-date.pipe";
 import {QuillViewComponent} from "ngx-quill";
-import {DatePipe, NgStyle} from "@angular/common";
+import {NgClass, NgStyle} from "@angular/common";
 import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {ConfirmService} from "../../../../shared/confirm.service";
 import {AnnotationService} from "../../../../_services/annotation.service";
@@ -21,17 +21,27 @@ import {DefaultValuePipe} from "../../../../_pipes/default-value.pipe";
 import {SlotColorPipe} from "../../../../_pipes/slot-color.pipe";
 import {ColorscapeService} from "../../../../_services/colorscape.service";
 import {ActivatedRoute, Router, RouterLink} from "@angular/router";
+import {NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
+import {AccountService} from "../../../../_services/account.service";
+import {EVENTS, MessageHubService} from "../../../../_services/message-hub.service";
+import {AnnotationUpdateEvent} from "../../../../_models/events/annotation-update-event";
+import {AnnotationLikesComponent} from "../annotation-likes/annotation-likes.component";
+import {ProfileIconComponent} from "../../../../_single-module/profile-icon/profile-icon.component";
+import {UtcToLocalTimePipe} from "../../../../_pipes/utc-to-local-time.pipe";
 
 @Component({
   selector: 'app-annotation-card',
   imports: [
-    UtcToLocaleDatePipe,
     QuillViewComponent,
-    DatePipe,
     TranslocoDirective,
     DefaultValuePipe,
     NgStyle,
-    RouterLink
+    RouterLink,
+    NgClass,
+    NgbTooltip,
+    AnnotationLikesComponent,
+    ProfileIconComponent,
+    UtcToLocalTimePipe
   ],
   templateUrl: './annotation-card.component.html',
   styleUrl: './annotation-card.component.scss',
@@ -46,32 +56,66 @@ export class AnnotationCardComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly highlightSlotPipe = new SlotColorPipe();
+  protected readonly accountService = inject(AccountService);
+  private readonly messageHub = inject(MessageHubService);
 
   annotation = model.required<Annotation>();
   allowEdit = input<boolean>(true);
   showPageLink = input<boolean>(true);
   /**
+   * If sizes should be forced. Turned off in drawer to account for manual resize
+   */
+  forceSize = input<boolean>(true);
+  /**
    * Redirects to the reader with annotation in view
    */
   showInReaderLink = input<boolean>(false);
+  /**
+   * Disable a selection checkbox. Fires selection when called
+   */
+  showSelectionBox = input<boolean>(false);
+  /**
+   * Displays series and library name
+   */
+  showLocationInformation = input<boolean>(false);
+  /**
+   * Disable a like button
+   */
+  showLikes = input<boolean>(true);
+  openInIncognitoMode = input<boolean>(false);
   isInReader = input<boolean>(true);
-  @Output() delete = new EventEmitter();
-  @Output() navigate = new EventEmitter<Annotation>();
+  /**
+   * If enabled, listens to annotation updates
+   */
+  listenToUpdates = input<boolean>(false);
+  /**
+   * If the card is rendered inside the book reader. Used for styling the confirm button
+   */
+  inBookReader = input<boolean>(false);
+
+  selected = input<boolean>(false);
+  readonly delete = output();
+  readonly navigate = output<Annotation>();
+  /**
+   * Fire when the checkbox is pressed, with the last known state (inverse of checked state)
+   */
+  readonly selection = output<boolean>();
 
   titleColor: Signal<string>;
+  hasClicked = signal<boolean>(false);
 
   constructor() {
 
-    // TODO: Validate if I want this -- aka update content on a detail page when receiving update from backend
-    // this.messageHub.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(message => {
-    //   if (message.payload !== EVENTS.AnnotationUpdate) return;
-    //   const updatedAnnotation = message.payload as AnnotationUpdateEvent;
-    //   if (this.annotation()?.id !== updatedAnnotation.annotation.id) return;
-    //
-    //   console.log('Refreshing annotation from backend: ', updatedAnnotation.annotation);
-    //   this.annotation.set(updatedAnnotation.annotation);
-    // });
+    effect(() => {
+      const enabled = this.listenToUpdates();
+      const event = this.messageHub.messageSignal();
+      if (!enabled || event?.event !== EVENTS.AnnotationUpdate) return;
 
+      const newAnnotation = (event.payload as AnnotationUpdateEvent).annotation;
+      if (this.annotation().id != newAnnotation.id) return;
+
+      this.annotation.set(newAnnotation);
+    });
 
     this.titleColor = computed(() => {
       const annotation = this.annotation();
@@ -116,13 +160,15 @@ export class AnnotationCardComponent {
   }
 
   async deleteAnnotation() {
-    if (!await this.confirmService.confirm(translate('toasts.confirm-delete-annotation'))) return;
+    if (!await this.confirmService.confirm(translate('toasts.confirm-delete-annotation'), {
+      ...this.confirmService.defaultConfirm,
+      bookReader: this.inBookReader(),
+    })) return;
     const annotation = this.annotation();
     if (!annotation) return;
 
     this.annotationService.delete(annotation.id).subscribe(_ => {
-      this.delete.emit();
+      this.delete.emit(undefined);
     });
-
   }
 }

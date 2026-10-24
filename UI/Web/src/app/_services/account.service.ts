@@ -1,22 +1,24 @@
-import {HttpClient, HttpHeaders} from '@angular/common/http';
-import {DestroyRef, inject, Injectable} from '@angular/core';
-import {Observable, of, ReplaySubject, shareReplay} from 'rxjs';
-import {filter, map, switchMap, tap} from 'rxjs/operators';
-import {environment} from 'src/environments/environment';
+import {HttpClient, httpResource} from '@angular/common/http';
+import {computed, DestroyRef, inject, Injectable, signal} from '@angular/core';
+import {Observable, of} from 'rxjs';
+import {filter, finalize, map, shareReplay, switchMap, tap} from 'rxjs/operators';
+import {environment} from '../../environments/environment';
 import {Preferences} from '../_models/preferences/preferences';
-import {User} from '../_models/user';
+import {User} from '../_models/user/user';
 import {Router} from '@angular/router';
 import {EVENTS, MessageHubService} from './message-hub.service';
-import {ThemeService} from './theme.service';
 import {InviteUserResponse} from '../_models/auth/invite-user-response';
 import {UserUpdateEvent} from '../_models/events/user-update-event';
 import {AgeRating} from '../_models/metadata/age-rating';
 import {AgeRestriction} from '../_models/metadata/age-restriction';
 import {TextResonse} from '../_types/text-response';
-import {takeUntilDestroyed, toSignal} from "@angular/core/rxjs-interop";
-import {Action} from "./action-factory.service";
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {LicenseService} from "./license.service";
 import {LocalizationService} from "./localization.service";
+import {Annotation} from "../book-reader/_models/annotations/annotation";
+import {AuthKey, ImageOnlyName, OpdsName} from "../_models/user/auth-key";
+import {Action} from "../_models/actionables/action";
+import {UpdateUserRequest} from "../_models/user/update-user-request";
 
 export enum Role {
   Admin = 'Admin',
@@ -48,22 +50,39 @@ export class AccountService {
   private readonly destroyRef = inject(DestroyRef);
   private readonly licenseService = inject(LicenseService);
   private readonly localizationService = inject(LocalizationService);
+  private readonly httpClient = inject(HttpClient);
+  private readonly router = inject(Router);
+  private readonly messageHub = inject(MessageHubService);
 
   baseUrl = environment.apiUrl;
-  userKey = 'kavita-user';
+  public static userKey = 'kavita-user';
   public static lastLoginKey = 'kavita-lastlogin';
   public static localeKey = 'kavita-locale';
-  private currentUser: User | undefined;
 
-  // Stores values, when someone subscribes gives (1) of last values seen.
-  private currentUserSource = new ReplaySubject<User | undefined>(1);
-  public currentUser$ = this.currentUserSource.asObservable().pipe(takeUntilDestroyed(this.destroyRef), shareReplay({bufferSize: 1, refCount: true}));
-  public isAdmin$: Observable<boolean> = this.currentUser$.pipe(takeUntilDestroyed(this.destroyRef), map(u => {
-    if (!u) return false;
-    return this.hasAdminRole(u);
-  }), shareReplay({bufferSize: 1, refCount: true}));
+  private readonly _currentUser = signal<User | undefined>(undefined);
+  public readonly currentUser = this._currentUser.asReadonly();
 
-  public readonly currentUserSignal = toSignal(this.currentUserSource);
+  // Derived signals
+  public readonly isLoggedIn = computed(() => this._currentUser() !== undefined);
+  public readonly userId = computed(() => this._currentUser()?.id);
+  public readonly username = computed(() => this._currentUser()?.username);
+  public readonly userPreferences = computed(() => this._currentUser()?.preferences);
+
+  // Role signals
+  public readonly hasAdminRole = computed(() => this.hasRole(this._currentUser(), Role.Admin));
+  public readonly hasChangePasswordRole = computed(() => this.hasRole(this._currentUser(), Role.ChangePassword));
+  public readonly hasChangeAgeRestrictionRole = computed(() => this.hasRole(this._currentUser(), Role.ChangeRestriction));
+  public readonly hasDownloadRole = computed(() => this.hasRole(this._currentUser(), Role.Download));
+  public readonly hasBookmarkRole = computed(() => this.hasRole(this._currentUser(), Role.Bookmark));
+  public readonly hasReadOnlyRole = computed(() => this._currentUser() ? this.hasRole(this._currentUser(), Role.ReadOnly) : true);
+  public readonly hasPromoteRole = computed(() => this.hasRole(this._currentUser(), Role.Promote) || this.hasRole(this._currentUser(), Role.Admin));
+
+  public readonly currentUserGenericApiKey = computed(() =>
+    this._currentUser()?.authKeys?.find(k => k.name === OpdsName)?.key
+  );
+  public readonly currentUserImageAuthKey = computed(() =>
+    this._currentUser()?.authKeys?.find(k => k.name === ImageOnlyName)?.key
+  );
 
   /**
    * SetTimeout handler for keeping track of refresh token call
@@ -72,13 +91,38 @@ export class AccountService {
 
   private isOnline: boolean = true;
 
-  constructor(private httpClient: HttpClient, private router: Router,
-    private messageHub: MessageHubService, private themeService: ThemeService) {
-      messageHub.messages$.pipe(filter(evt => evt.event === EVENTS.UserUpdate),
+  constructor() {
+      this.messageHub.messages$.pipe(filter(evt => evt.event === EVENTS.UserUpdate),
         map(evt => evt.payload as UserUpdateEvent),
-        filter(userUpdateEvent => userUpdateEvent.userName === this.currentUser?.username),
+        filter(userUpdateEvent => userUpdateEvent.userName === this._currentUser()?.username),
         switchMap(() => this.refreshAccount()))
         .subscribe(() => {});
+
+      this.messageHub.messages$.pipe(
+        filter(evt => evt.event === EVENTS.AuthKeyUpdate),
+        map(evt => evt.payload as {authKey: AuthKey}),
+        tap(({authKey}) => {
+          const existing = this._currentUser();
+          if (!existing) return;
+          const existingKeys = existing.authKeys ?? [];
+          const index = existingKeys.findIndex(k => k.id === authKey.id);
+          const authKeys = index >= 0
+            ? existingKeys.map(k => k.id === authKey.id ? authKey : k)
+            : [...existingKeys, authKey];
+          this.setCurrentUser({ ...existing, authKeys }, false);
+        }),
+      ).subscribe();
+
+    this.messageHub.messages$.pipe(
+      filter(evt => evt.event === EVENTS.AuthKeyDeleted),
+      map(evt => evt.payload as {id: number}),
+      tap(({id}) => {
+        const existing = this._currentUser();
+        if (!existing) return;
+        this.setCurrentUser({ ...existing, authKeys: (existing.authKeys ?? []).filter(k => k.id !== id) }, false);
+      }),
+    ).subscribe();
+
 
     window.addEventListener("offline", (e) => {
       this.isOnline = false;
@@ -90,16 +134,27 @@ export class AccountService {
     });
   }
 
+  canCurrentUserInvokeAction(action: Action) {
+    const user = this.currentUser();
+    if (!user) return false;
+
+    return this.canInvokeAction(user, action);
+  }
+
   canInvokeAction(user: User, action: Action) {
-    const isAdmin = this.hasAdminRole(user);
-    const canDownload = this.hasDownloadRole(user);
-    const canPromote = this.hasPromoteRole(user);
+    const isAdmin = this.hasRole(user, Role.Admin);
+    const canDownload = this.hasRole(user, Role.Download);
+    const canPromote = this.hasRole(user, Role.Promote) || this.hasRole(user, Role.Admin);
 
     if (isAdmin) return true;
     if (action === Action.Download) return canDownload;
     if (action === Action.Promote || action === Action.UnPromote) return canPromote;
     if (action === Action.Delete) return isAdmin;
     return true;
+  }
+
+  hasRole(user: User | undefined, role: Role) {
+    return !!user && user.roles.includes(role);
   }
 
   /**
@@ -114,7 +169,7 @@ export class AccountService {
     }
 
     // If the user is an admin, they have the role
-    if (this.hasAdminRole(user)) {
+    if (this.hasRole(user, Role.Admin)) {
       return true;
     }
 
@@ -133,62 +188,43 @@ export class AccountService {
   }
 
   /**
-   * If User or Admin, will return false
-   * @param user
-   * @param restrictedRoles
+   * Should likes be displayed for the given annotation
+   * @param annotation
    */
-  hasAnyRestrictedRole(user: User, restrictedRoles: Array<Role> = []) {
-    if (!user || !user.roles) {
-      return true;
+  showAnnotationLikes(annotation: Annotation) {
+    const user = this._currentUser();
+    if (!user) return false;
+
+    const shareAnnotations = user.preferences.socialPreferences.shareAnnotations;
+    return this.isSocialFeatureEnabled(shareAnnotations, annotation.libraryId, annotation.ageRating);
+  }
+
+  /**
+   * Checks if the given social feature is enabled in a library with associated age rating on the entity
+   * @param feature
+   * @param activeLibrary
+   * @param ageRating
+   * @private
+   */
+  private isSocialFeatureEnabled(feature: boolean, activeLibrary: number, ageRating: AgeRating) {
+    const user = this._currentUser();
+    if (!user || !feature) return false;
+
+    const socialPreferences = user.preferences.socialPreferences;
+
+    const libraryAllowed = socialPreferences.socialLibraries.length === 0 ||
+      socialPreferences.socialLibraries.includes(activeLibrary);
+
+    if (!libraryAllowed || socialPreferences.socialMaxAgeRating === AgeRating.NotApplicable) {
+      return libraryAllowed;
     }
 
-    if (restrictedRoles.length === 0) {
-      return false;
+    if (socialPreferences.socialIncludeUnknowns) {
+      return socialPreferences.socialMaxAgeRating >= ageRating;
     }
 
-    // If the user is an admin, they have the role
-    if (this.hasAdminRole(user)) {
-      return false;
-    }
+    return socialPreferences.socialMaxAgeRating >= ageRating && ageRating !== AgeRating.Unknown;
 
-
-    if (restrictedRoles.length > 0 && restrictedRoles.some(role => user.roles.includes(role))) {
-      return true;
-    }
-
-    return false;
-  }
-
-  hasAdminRole(user: User) {
-    return user && user.roles.includes(Role.Admin);
-  }
-
-  hasChangePasswordRole(user: User) {
-    return user && user.roles.includes(Role.ChangePassword);
-  }
-
-  hasChangeAgeRestrictionRole(user: User) {
-    return user && !user.roles.includes(Role.Admin) && user.roles.includes(Role.ChangeRestriction);
-  }
-
-  hasDownloadRole(user: User) {
-    return user && user.roles.includes(Role.Download);
-  }
-
-  hasBookmarkRole(user: User) {
-    return user && user.roles.includes(Role.Bookmark);
-  }
-
-  hasReadOnlyRole(user: User) {
-    return user && user.roles.includes(Role.ReadOnly);
-  }
-
-  hasPromoteRole(user: User) {
-    return user && user.roles.includes(Role.Promote) || user.roles.includes(Role.Admin);
-  }
-
-  getRoles() {
-    return this.httpClient.get<string[]>(this.baseUrl + 'account/roles');
   }
 
 
@@ -200,8 +236,7 @@ export class AccountService {
         if (user) {
           this.setCurrentUser(user);
         }
-      }),
-      takeUntilDestroyed(this.destroyRef)
+      })
     );
   }
 
@@ -217,55 +252,49 @@ export class AccountService {
     );
   }
 
+  /** Omit auth keys since they are long-lived. The auth keys will be set from refreshAccount() */
+  private getPersistableUser(user: User): Omit<User, 'authKeys'> {
+    const { authKeys, ...persistable } = user;
+    return persistable;
+  }
+
   setCurrentUser(user?: User, refreshConnections = true) {
+    const currentUser = this._currentUser();
+    const isSameUser = !!currentUser && !!user && currentUser.username === user.username;
 
-    const isSameUser = this.currentUser === user;
     if (user) {
-      localStorage.setItem(this.userKey, JSON.stringify(user));
+      localStorage.setItem(AccountService.userKey, JSON.stringify(this.getPersistableUser(user)));
       localStorage.setItem(AccountService.lastLoginKey, user.username);
-
-      if (user.preferences && user.preferences.theme) {
-        this.themeService.setTheme(user.preferences.theme.name);
-      } else {
-        this.themeService.setTheme(this.themeService.defaultTheme);
-      }
-    } else {
-      this.themeService.setTheme(this.themeService.defaultTheme);
     }
 
-    this.currentUser = user;
-    this.currentUserSource.next(user);
+    this._currentUser.set(user);
 
     if (!refreshConnections) return;
 
     this.stopRefreshTokenTimer();
 
-    if (this.currentUser) {
-      // BUG: StopHubConnection has a promise in it, this needs to be async
-      // But that really messes everything up
-      if (!isSameUser) {
-        this.messageHub.stopHubConnection();
-        this.messageHub.createHubConnection(this.currentUser);
-        this.licenseService.hasValidLicense().subscribe();
-      }
-      if (this.currentUser.token) {
-        this.startRefreshTokenTimer();
-      }
+    if (user && !isSameUser) {
+      this.messageHub.stopHubConnection();
+      this.messageHub.createHubConnection(user);
+      this.licenseService.checkForValidLicense().subscribe();
+    }
+
+    if (user?.token) {
+      this.startRefreshTokenTimer();
     }
   }
 
-  logout(skipAutoLogin: boolean = false) {
-    const user = this.currentUserSignal();
+  logout(skipAutoLogin: boolean = false, skipOidcLogout: boolean = false) {
+    const user = this._currentUser();
     if (!user) return;
 
-    localStorage.removeItem(this.userKey);
-    this.currentUserSource.next(undefined);
-    this.currentUser = undefined;
+    localStorage.removeItem(AccountService.userKey);
+    this._currentUser.set(undefined);
     this.stopRefreshTokenTimer();
     this.messageHub.stopHubConnection();
 
-    if (!user.token) {
-      window.location.href = '/oidc/logout';
+    if (!skipOidcLogout && !user.token) {
+      window.location.href = this.baseUrl.substring(0, environment.apiUrl.indexOf("api")) + 'oidc/logout';
       return;
     }
 
@@ -292,6 +321,10 @@ export class AccountService {
   isOidcAuthenticated() {
     return this.httpClient.get<string>(this.baseUrl + 'account/oidc-authenticated', TextResonse)
       .pipe(map(res => res == "true"));
+  }
+
+  clearOidcLink() {
+    return this.httpClient.post(this.baseUrl + 'account/clear-oidc-link', {});
   }
 
   isEmailConfirmed() {
@@ -333,10 +366,6 @@ export class AccountService {
     return this.httpClient.get<string>(this.baseUrl + 'account/invite-url?userId=' + userId + '&withBaseUrl=' + withBaseUrl, TextResonse);
   }
 
-  getDecodedToken(token: string) {
-    return JSON.parse(atob(token.split('.')[1]));
-  }
-
   requestResetPasswordEmail(email: string) {
     return this.httpClient.post<string>(this.baseUrl + 'account/forgot-password?email=' + encodeURIComponent(email), {}, TextResonse);
   }
@@ -349,12 +378,16 @@ export class AccountService {
     return this.httpClient.post(this.baseUrl + 'account/reset-password', {username, password, oldPassword}, TextResonse);
   }
 
-  update(model: {email: string, roles: Array<string>, libraries: Array<number>, userId: number, ageRestriction: AgeRestriction}) {
+  update(model: UpdateUserRequest) {
     return this.httpClient.post(this.baseUrl + 'account/update', model);
   }
 
   updateEmail(email: string, password: string) {
     return this.httpClient.post<InviteUserResponse>(this.baseUrl + 'account/update/email', {email, password});
+  }
+
+  changeUsername(username: string) {
+    return this.httpClient.post<InviteUserResponse>(this.baseUrl + 'account/update/username', {username});
   }
 
   updateAgeRestriction(ageRating: AgeRating, includeUnknowns: boolean) {
@@ -367,32 +400,31 @@ export class AccountService {
    */
   getPreferences() {
     return this.httpClient.get<Preferences>(this.baseUrl + 'users/get-preferences').pipe(map(pref => {
-      if (this.currentUser !== undefined && this.currentUser !== null) {
-        this.currentUser.preferences = pref;
-        this.setCurrentUser(this.currentUser);
-      }
+      const current = this._currentUser();
+      if (current) this.setCurrentUser({ ...current, preferences: pref });
       return pref;
     }), takeUntilDestroyed(this.destroyRef));
   }
 
   updatePreferences(userPreferences: Preferences) {
     return this.httpClient.post<Preferences>(this.baseUrl + 'users/update-preferences', userPreferences).pipe(map(settings => {
-      if (this.currentUser !== undefined && this.currentUser !== null) {
-        this.currentUser.preferences = settings;
-        this.setCurrentUser(this.currentUser, false);
+      const current = this._currentUser();
+      if (current) {
+        const localeChange = current.preferences.locale != settings.locale;
+        this.setCurrentUser({ ...current, preferences: settings }, false);
 
-        // Update the locale on disk (for logout and compact-number pipe)
-        localStorage.setItem(AccountService.localeKey, this.currentUser.preferences.locale);
-        this.localizationService.refreshTranslations(this.currentUser.preferences.locale);
-
+        if (localeChange) {
+          // Update the locale on disk (for logout and compact-number pipe)
+          localStorage.setItem(AccountService.localeKey, settings.locale);
+          this.localizationService.refreshTranslations(settings.locale);
+        }
       }
       return settings;
     }), takeUntilDestroyed(this.destroyRef));
   }
 
   getUserFromLocalStorage(): User | undefined {
-
-    const userString = localStorage.getItem(this.userKey);
+    const userString = localStorage.getItem(AccountService.userKey);
 
     if (userString) {
       return JSON.parse(userString)
@@ -401,59 +433,71 @@ export class AccountService {
     return undefined;
   }
 
-  resetApiKey() {
-    return this.httpClient.post<string>(this.baseUrl + 'account/reset-api-key', {}, TextResonse).pipe(map(key => {
-      const user = this.getUserFromLocalStorage();
-      if (user) {
-        user.apiKey = key;
-
-        localStorage.setItem(this.userKey, JSON.stringify(user));
-
-        this.currentUserSource.next(user);
-        this.currentUser = user;
-      }
-      return key;
-    }));
+  opdsUrlRsc(keyName: () => string) {
+    return httpResource.text<string>(() =>this.baseUrl + 'account/opds-url?authKeyName=' + keyName());
   }
 
-  getOpdsUrl() {
-    return this.httpClient.get<string>(this.baseUrl + 'account/opds-url', TextResonse);
+  getAuthKeys() {
+    return this.httpClient.get<AuthKey[]>(this.baseUrl + `account/auth-keys`);
+  }
+
+  createAuthKey(data: {keyLength: number, name: string, expiresUtc: string | null}) {
+    return this.httpClient.post(this.baseUrl + 'account/create-auth-key', data);
+  }
+
+  rotateAuthKey(id: number, data: {keyLength: number, name: string, expiresUtc: string | null}) {
+    return this.httpClient.post(this.baseUrl + `account/rotate-auth-key?authKeyId=${id}`, data);
   }
 
 
-  refreshAccount() {
-    if (this.currentUser === null || this.currentUser === undefined) return of();
+  deleteAuthKey(id: number) {
+    return this.httpClient.delete(this.baseUrl + `account/auth-key?authKeyId=${id}`);
+  }
+
+
+  refreshAccount(): Observable<null | User> {
+    if (!this._currentUser()) return of(null);
     return this.httpClient.get<User>(this.baseUrl + 'account/refresh-account').pipe(map((user: User) => {
       if (user) {
-        this.currentUser = {...user};
+        this.setCurrentUser({...user});
+        this.licenseService.checkForValidLicense().subscribe();
       }
-
-      this.setCurrentUser(this.currentUser);
       return user;
     }));
   }
 
+  private refresh$?: Observable<{token: string, refreshToken: string}>;
 
-  private refreshToken() {
-    if (this.currentUser === null || this.currentUser === undefined || !this.isOnline || !this.currentUser.token) return of();
+  refreshToken() {
+    const current = this._currentUser();
+    if (!current || !this.isOnline || !current.token) return of();
 
-    return this.httpClient.post<{token: string, refreshToken: string}>(this.baseUrl + 'account/refresh-token',
-     {token: this.currentUser.token, refreshToken: this.currentUser.refreshToken}).pipe(map(user => {
-      if (this.currentUser) {
-        this.currentUser.token = user.token;
-        this.currentUser.refreshToken = user.refreshToken;
-      }
+    if (this.refresh$) {
+      return this.refresh$;
+    }
 
-      this.setCurrentUser(this.currentUser);
-      return user;
-    }));
+    this.refresh$ = this.httpClient.post<{token: string, refreshToken: string}>(this.baseUrl + 'account/refresh-token',
+     {token: current.token, refreshToken: current.refreshToken}).pipe(
+       map(tokens => {
+         const updated = this._currentUser();
+         if (updated) {
+           this.setCurrentUser({ ...updated, token: tokens.token, refreshToken: tokens.refreshToken });
+         }
+
+         return tokens;
+       }),
+      finalize(() => this.refresh$ = undefined),
+      shareReplay(1),
+    );
+
+    return this.refresh$;
   }
 
   /**
    * Every 10 mins refresh the token
    */
   private startRefreshTokenTimer() {
-    if (this.currentUser === null || this.currentUser === undefined) {
+    if (!this._currentUser()) {
       this.stopRefreshTokenTimer();
       return;
     }

@@ -22,7 +22,7 @@
     .ql-editor {
       background-color: var(--theme-bg-color);
       color: var(--body-text-color);
-      min-height: 60px;
+      min-height: 3.75rem;
 
       &::before {
         color: var(--input-placeholder-color);
@@ -166,5 +166,16 @@
     margin-right: 0.9375rem;
     padding-right: 0.9375rem;
     border-right: 0.0625rem solid var(--input-border-color);
+  }
+
+  .ql-tooltip {
+    border: 0.0625rem solid var(--primary-color);
+    background-color: var(--drawer-bg-color);
+    max-width: 90vw !important;
+    width: auto !important;
+
+    &.ql-editing {
+      min-width: 20rem !important;
+    }
   }
 }

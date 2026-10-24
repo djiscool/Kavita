@@ -1,10 +1,18 @@
-import {Component, computed, DestroyRef, effect, ElementRef, inject, input, model, ViewChild} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  ElementRef,
+  inject,
+  model,
+  viewChild
+} from '@angular/core';
 import {Annotation} from "../../../_models/annotations/annotation";
 import {EpubReaderMenuService} from "../../../../_services/epub-reader-menu.service";
 import {AnnotationService} from "../../../../_services/annotation.service";
 import {SlotColorPipe} from "../../../../_pipes/slot-color.pipe";
 import {NgStyle} from "@angular/common";
-import {MessageHubService} from "../../../../_services/message-hub.service";
 
 @Component({
   selector: 'app-epub-highlight',
@@ -12,19 +20,18 @@ import {MessageHubService} from "../../../../_services/message-hub.service";
     NgStyle
   ],
   templateUrl: './epub-highlight.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './epub-highlight.component.scss'
 })
 export class EpubHighlightComponent {
   private readonly epubMenuService = inject(EpubReaderMenuService);
   private readonly annotationService = inject(AnnotationService);
-  private readonly messageHub = inject(MessageHubService);
-  private readonly destroyRef = inject(DestroyRef);
 
   showHighlight = model<boolean>(true);
 
   annotation = model.required<Annotation | null>();
 
-  @ViewChild('highlightSpan', { static: false }) highlightSpan!: ElementRef;
+  readonly highlightSpan = viewChild.required<ElementRef>('highlightSpan');
 
   private readonly highlightSlotPipe = new SlotColorPipe();
 
@@ -37,8 +44,6 @@ export class EpubHighlightComponent {
 
       if (!updateEvent || !annotation || updateEvent.annotation.id !== annotation.id) return;
       if (updateEvent.type !== 'edit') return;
-
-      console.log('[highlight] annotation updated', annotation);
 
       this.annotation.set(annotations.filter(a => a.id === annotation.id)[0]);
     });
@@ -58,11 +63,17 @@ export class EpubHighlightComponent {
   });
 
 
-  viewAnnotation() {
+  viewAnnotation(event: Event) {
     // Don't view annotation if a drawer is already open
     if (this.epubMenuService.isDrawerOpen()) return;
 
+    if (this.hasOwnAction(event.target)) return;
+
     this.epubMenuService.openViewAnnotationDrawer(this.annotation()!, false, (_) => {});
+  }
+
+  private hasOwnAction(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest('a[href]') !== null;
   }
 
 }

@@ -1,24 +1,30 @@
-import { HttpClient } from '@angular/common/http';
-import {Injectable} from '@angular/core';
-import {environment} from 'src/environments/environment';
+import {HttpClient} from '@angular/common/http';
+import {inject, Injectable} from '@angular/core';
+import {environment} from '../../environments/environment';
 import {UserCollection} from '../_models/collection-tag';
 import {TextResonse} from '../_types/text-response';
 import {MalStack} from "../_models/collection/mal-stack";
-import {Action, ActionItem} from "./action-factory.service";
-import {User} from "../_models/user";
-import {AccountService} from "./account.service";
+import {User} from "../_models/user/user";
+import {AccountService, Role} from "./account.service";
+import {ActionItem} from "../_models/actionables/action-item";
+import {Action} from "../_models/actionables/action";
 
 @Injectable({
   providedIn: 'root'
 })
 export class CollectionTagService {
+  private httpClient = inject(HttpClient);
+  private accountService = inject(AccountService);
+
 
   baseUrl = environment.apiUrl;
 
-  constructor(private httpClient: HttpClient, private accountService: AccountService) { }
+  getCollectionById(collectionId: number) {
+    return this.httpClient.get<UserCollection>(this.baseUrl + 'collection/single?collectionId=' + collectionId);
+  }
 
-  allCollections(ownedOnly = false) {
-    return this.httpClient.get<UserCollection[]>(this.baseUrl + 'collection?ownedOnly=' + ownedOnly);
+  allCollections(ownedOnly = false, sortByLastModified = false) {
+    return this.httpClient.get<UserCollection[]>(this.baseUrl + `collection?ownedOnly=${ownedOnly}&sortByLastModified=${sortByLastModified}`);
   }
 
   allCollectionsForSeries(seriesId: number, ownedOnly = false) {
@@ -26,7 +32,7 @@ export class CollectionTagService {
   }
 
   updateTag(tag: UserCollection) {
-    return this.httpClient.post(this.baseUrl + 'collection/update', tag, TextResonse);
+    return this.httpClient.post<UserCollection>(this.baseUrl + 'collection/update', tag);
   }
 
   promoteMultipleCollections(tags: Array<number>, promoted: boolean) {
@@ -58,7 +64,7 @@ export class CollectionTagService {
   }
 
   actionListFilter(action: ActionItem<UserCollection>, user: User) {
-    const canPromote = this.accountService.hasAdminRole(user) || this.accountService.hasPromoteRole(user);
+    const canPromote = this.accountService.hasRole(user, Role.Admin) || this.accountService.hasRole(user, Role.Promote);
     const isPromotionAction = action.action == Action.Promote || action.action == Action.UnPromote;
 
     if (isPromotionAction) return canPromote;

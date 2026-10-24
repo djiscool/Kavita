@@ -3,38 +3,55 @@ import {
   Component,
   computed,
   DestroyRef,
-  effect,
   inject,
   model,
   OnInit,
+  signal,
   Signal,
-  ViewChild,
+  viewChild,
   ViewContainerRef
 } from '@angular/core';
 import {NgbActiveOffcanvas} from "@ng-bootstrap/ng-bootstrap";
 import {AnnotationService} from "../../../../_services/annotation.service";
-import {FormControl, FormGroup, NonNullableFormBuilder, ReactiveFormsModule} from "@angular/forms";
+import {form, FormField} from "@angular/forms/signals";
 import {Annotation} from "../../../_models/annotations/annotation";
-import {TranslocoDirective} from "@jsverse/transloco";
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
-import {debounceTime, switchMap} from "rxjs/operators";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
+import {takeUntilDestroyed, toObservable} from "@angular/core/rxjs-interop";
+import {debounceTime, filter, switchMap} from "rxjs/operators";
 import {of} from "rxjs";
 import {HighlightBarComponent} from "../../_annotations/highlight-bar/highlight-bar.component";
 import {SlotColorPipe} from "../../../../_pipes/slot-color.pipe";
-import {User} from "../../../../_models/user";
 import {DomSanitizer, SafeHtml} from "@angular/platform-browser";
 import {DOCUMENT, NgStyle} from "@angular/common";
 import {SafeHtmlPipe} from "../../../../_pipes/safe-html.pipe";
 import {EpubHighlightService} from "../../../../_services/epub-highlight.service";
 import {PageChapterLabelPipe} from "../../../../_pipes/page-chapter-label.pipe";
-import {UserBreakpoint, UtilityService} from "../../../../shared/_services/utility.service";
+import {UtilityService} from "../../../../shared/_services/utility.service";
 import {QuillTheme, QuillWrapperComponent} from "../../quill-wrapper/quill-wrapper.component";
 import {ContentChange, QuillViewComponent} from "ngx-quill";
+import {AccountService} from "../../../../_services/account.service";
+import {
+  OffCanvasResizeComponent,
+  ResizeMode
+} from "../../../../shared/_components/off-canvas-resize/off-canvas-resize.component";
+import {ConfirmService} from "../../../../shared/confirm.service";
+import {AnnotationLikesComponent} from "../../_annotations/annotation-likes/annotation-likes.component";
+import {ProfileIconComponent} from "../../../../_single-module/profile-icon/profile-icon.component";
+import {RouterLink} from "@angular/router";
+import {BreakpointService} from "../../../../_services/breakpoint.service";
+import {DrawerService} from "../../../../_services/drawer.service";
+import {UtcToLocalTimePipe} from "../../../../_pipes/utc-to-local-time.pipe";
 
 export enum AnnotationMode {
   View = 0,
   Edit = 1,
   Create = 2,
+}
+
+interface FormModel {
+  note: object;
+  hasSpoiler: boolean;
+  selectedSlotIndex: number;
 }
 
 const INIT_HIGHLIGHT_DELAY = 200;
@@ -43,19 +60,25 @@ const INIT_HIGHLIGHT_DELAY = 200;
   selector: 'app-view-edit-annotation-drawer',
   imports: [
     QuillWrapperComponent,
-    ReactiveFormsModule,
+    FormField,
     TranslocoDirective,
     HighlightBarComponent,
     NgStyle,
     PageChapterLabelPipe,
     QuillWrapperComponent,
-    QuillViewComponent
+    QuillViewComponent,
+    OffCanvasResizeComponent,
+    AnnotationLikesComponent,
+    ProfileIconComponent,
+    RouterLink,
+    UtcToLocalTimePipe
   ],
   templateUrl: './view-edit-annotation-drawer.component.html',
   styleUrl: './view-edit-annotation-drawer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class ViewEditAnnotationDrawerComponent implements OnInit {
+
   private readonly activeOffcanvas = inject(NgbActiveOffcanvas);
   private readonly annotationService = inject(AnnotationService);
   private readonly destroyRef = inject(DestroyRef);
@@ -64,26 +87,31 @@ export class ViewEditAnnotationDrawerComponent implements OnInit {
   private readonly safeHtml = new SafeHtmlPipe();
   private readonly sanitizer = inject(DomSanitizer);
   private readonly epubHighlightService = inject(EpubHighlightService);
-  private readonly fb = inject(NonNullableFormBuilder);
   protected readonly utilityService = inject(UtilityService);
+  protected readonly accountService = inject(AccountService);
+  private readonly confirmService = inject(ConfirmService);
+  private readonly drawerService = inject(DrawerService);
+  protected readonly breakpointService = inject(BreakpointService);
 
-  @ViewChild('renderTarget', {read: ViewContainerRef}) renderTarget!: ViewContainerRef;
+  readonly renderTarget = viewChild.required('renderTarget', { read: ViewContainerRef });
 
   annotation = model<Annotation | null>(null);
   mode = model<AnnotationMode>(AnnotationMode.View);
-  user = model<User | null>(null);
   isEditMode: Signal<boolean>
   isEditOrCreateMode: Signal<boolean>
   titleColor: Signal<string>;
   totalText!: Signal<SafeHtml>;
 
+  quoteExpanded = signal(false);
 
-  formGroup!: FormGroup<{
-    note: FormControl<object>,
-    hasSpoiler: FormControl<boolean>,
-    selectedSlotIndex: FormControl<number>,
-  }>;
+  formModel = signal<FormModel>({
+    note: {},
+    hasSpoiler: false,
+    selectedSlotIndex: 0,
+  });
+  formGroup = form(this.formModel);
   annotationNote: object = {};
+  annotationHtml: string = '';
 
   constructor() {
     this.titleColor = computed(() => {
@@ -188,34 +216,16 @@ export class ViewEditAnnotationDrawerComponent implements OnInit {
       return this.sanitizer.bypassSecurityTrustHtml(`${this.safeHtml.transform(beforeText)}<app-epub-highlight id="epub-highlight-${annotationId}">${this.safeHtml.transform(selectedText)}</app-epub-highlight>${this.safeHtml.transform(trimmedAfterText)}`);
     });
 
-    this.formGroup = this.fb.group({
-      note: this.fb.control<object>({}, []),
-      hasSpoiler: this.fb.control<boolean>(false, []),
-      selectedSlotIndex: this.fb.control<number>(0, []),
-    });
-  }
-
-  ngOnInit(){
-    const annotation = this.annotation();
-    if (annotation) {
-      this.annotationNote = annotation?.comment ? JSON.parse(annotation.comment) : {};
-      this.formGroup.get('note')!.setValue(this.annotationNote);
-      this.formGroup.get('hasSpoiler')!.setValue(annotation.containsSpoiler);
-      this.formGroup.get('selectedSlotIndex')!.setValue(annotation.selectedSlotIndex);
-    }
-
-    if (!this.isEditMode()) {
-      return;
-    }
-
-    this.formGroup.valueChanges.pipe(
+    toObservable(this.formModel).pipe(
       debounceTime(350),
+      filter(() => this.isEditMode() && this.formGroup().dirty()),
       switchMap(_ => {
         const updatedAnnotation = this.annotation();
         if (!updatedAnnotation) return of();
 
-        updatedAnnotation.containsSpoiler = this.formGroup.get('hasSpoiler')!.value;
+        updatedAnnotation.containsSpoiler = this.formModel().hasSpoiler;
         updatedAnnotation.comment = JSON.stringify(this.annotationNote);
+        updatedAnnotation.commentHtml = this.annotationHtml;
 
         return this.annotationService.updateAnnotation(updatedAnnotation);
       }),
@@ -223,12 +233,25 @@ export class ViewEditAnnotationDrawerComponent implements OnInit {
     ).subscribe();
   }
 
+  ngOnInit(){
+    const annotation = this.annotation();
+    if (annotation) {
+      this.annotationNote = annotation?.comment ? JSON.parse(annotation.comment) : {};
+      this.formModel.set({
+        note: this.annotationNote,
+        hasSpoiler: annotation.containsSpoiler,
+        selectedSlotIndex: annotation.selectedSlotIndex,
+      });
+    }
+  }
+
   createAnnotation() {
     const highlightAnnotation = this.annotation();
     if (!highlightAnnotation) return;
 
-    highlightAnnotation.containsSpoiler = this.formGroup.get('hasSpoiler')!.value;
+    highlightAnnotation.containsSpoiler = this.formModel().hasSpoiler;
     highlightAnnotation.comment = JSON.stringify(this.annotationNote);
+    highlightAnnotation.commentHtml = this.annotationHtml;
     // For create annotation, we have to have this hack
     highlightAnnotation.createdUtc = '0001-01-01T00:00:00Z';
     highlightAnnotation.lastModifiedUtc = '0001-01-01T00:00:00Z'
@@ -238,16 +261,21 @@ export class ViewEditAnnotationDrawerComponent implements OnInit {
     });
   }
 
+  switchToEditMode() {
+    if (this.isEditMode()) return;
+
+    const annotation = this.annotation();
+    if (annotation == null || annotation.ownerUsername !== this.accountService.currentUser()?.username) return;
+
+    this.mode.set(AnnotationMode.Edit);
+  }
+
   changeSlotIndex(slotIndex: number) {
     const annotation = this.annotation();
 
     if (annotation) {
-      console.log('view-edit drawer, slot index changed: ', slotIndex, 'comment: ', this.annotation()?.comment, 'form comment: ', this.formGroup.get('note')?.value);
       this.annotation.set({...annotation, selectedSlotIndex: slotIndex});
-      this.formGroup.get('selectedSlotIndex')?.setValue(slotIndex);
-
-      // Patch back in any text in the quill editor
-      console.log('(2) view-edit drawer, slot index changed: ', slotIndex, 'comment: ', this.annotation()?.comment, 'form comment: ', this.formGroup.get('note')?.value);
+      this.formModel.update(m => ({...m, selectedSlotIndex: slotIndex}));
     }
   }
 
@@ -255,8 +283,9 @@ export class ViewEditAnnotationDrawerComponent implements OnInit {
     this.activeOffcanvas.close();
   }
 
-  updateContent(event: ContentChange) {
-    this.annotationNote = event.content;
+  updateContent(event: {raw: ContentChange, html?: string}) {
+    this.annotationNote = event.raw.content;
+    this.annotationHtml = event.html ?? '';
   }
 
   private initHighlights() {
@@ -264,10 +293,10 @@ export class ViewEditAnnotationDrawerComponent implements OnInit {
     if (highlightAnnotation === null) return;
 
     // Clear any existing components first
-    this.renderTarget.clear();
+    this.renderTarget().clear();
 
     const parentElem = this.document.querySelector('#render-target');
-    this.epubHighlightService.initializeHighlightElements([highlightAnnotation], this.renderTarget, parentElem, {showIcon: false, showHighlight: true});
+    this.epubHighlightService.initializeHighlightElements([highlightAnnotation], this.renderTarget(), parentElem, {showIcon: false, showHighlight: true});
   }
 
   private isSelectedTextAfterPunctuation(contextText: string, selectedIndex: number): boolean {
@@ -323,7 +352,24 @@ export class ViewEditAnnotationDrawerComponent implements OnInit {
     return Math.floor(availableWidth / avgCharWidth);
   }
 
+  async delete() {
+    const annotation = this.annotation();
+    if (!annotation) return;
+
+    const config = {
+      ...this.confirmService.defaultConfirm,
+      bookReader: true,
+    };
+
+    if (!await this.confirmService.confirm(translate('toasts.confirm-delete-annotation'), config)) return;
+
+    this.annotationService.deleteAnnotation(annotation).subscribe(_ => {
+      this.drawerService.dismiss();
+    });
+  }
+
   protected readonly AnnotationMode = AnnotationMode;
-  protected readonly UserBreakpoint = UserBreakpoint;
   protected readonly QuillTheme = QuillTheme;
+  protected readonly ResizeMode = ResizeMode;
+  protected readonly window = window;
 }

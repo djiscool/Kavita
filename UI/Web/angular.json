@@ -32,8 +32,7 @@
             "index": "src/index.html",
             "browser": "src/main.ts",
             "polyfills": [
-                "@angular/localize/init",
-                "zone.js"
+              "@angular/localize/init"
             ],
             "inlineStyleLanguage": "scss",
             "tsConfig": "tsconfig.app.json",
@@ -58,10 +57,11 @@
             },
             "extractLicenses": false,
             "optimization": false,
+            "outputHashing": "all",
             "namedChunks": true,
             "stylePreprocessorOptions": {
               "sass": {
-                "silenceDeprecations": ["mixed-decls", "color-functions", "global-builtin", "import"]
+                "silenceDeprecations": ["color-functions", "global-builtin", "import"]
               },
               "includePaths": ["src"]
             }
@@ -91,6 +91,14 @@
                   "maximumError": "30kb"
                 }
               ]
+            },
+            "proxy": {
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.proxy.ts"
+                }
+              ]
             }
           },
           "defaultConfiguration": ""
@@ -106,6 +114,9 @@
           "configurations": {
             "production": {
               "buildTarget": "kavita-webui:build:production"
+            },
+            "proxy": {
+              "buildTarget": "kavita-webui:build:proxy"
             }
           }
         },
@@ -147,6 +158,7 @@
       "typeSeparator": "."
     },
     "@schematics/angular:pipe": {
+      "skipTests": true,
       "typeSeparator": "."
     },
     "@schematics/angular:resolver": {

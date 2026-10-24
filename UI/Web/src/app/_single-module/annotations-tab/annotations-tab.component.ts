@@ -1,23 +1,24 @@
-import {Component, input} from '@angular/core';
-import {CarouselReelComponent} from "../../carousel/_components/carousel-reel/carousel-reel.component";
-import {TranslocoDirective} from "@jsverse/transloco";
+import {ChangeDetectionStrategy, Component, input} from '@angular/core';
 import {Annotation} from "../../book-reader/_models/annotations/annotation";
 import {
   AnnotationCardComponent
 } from "../../book-reader/_components/_annotations/annotation-card/annotation-card.component";
+import {VirtualScrollerComponent} from "@kareadita/ngx-virtual-scroller";
 
 @Component({
   selector: 'app-annotations-tab',
   imports: [
-    CarouselReelComponent,
-    TranslocoDirective,
-    AnnotationCardComponent
+    AnnotationCardComponent,
+    VirtualScrollerComponent
   ],
   templateUrl: './annotations-tab.component.html',
-  styleUrl: './annotations-tab.component.scss'
+  styleUrl: './annotations-tab.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class AnnotationsTabComponent {
 
   annotations = input.required<Annotation[]>();
+  scrollingBlock = input.required<HTMLDivElement>();
+  displaySeries = input<boolean>(false);
 
 }

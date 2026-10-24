@@ -1,23 +1,35 @@
-import {ChangeDetectionStrategy, Component, DestroyRef, HostListener, inject, OnInit} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  HostListener,
+  inject,
+  OnInit
+} from '@angular/core';
 import {NavigationStart, Router, RouterOutlet} from '@angular/router';
-import {map, shareReplay, take} from 'rxjs/operators';
+import {shareReplay, take} from 'rxjs/operators';
 import {AccountService} from './_services/account.service';
 import {LibraryService} from './_services/library.service';
 import {NavService} from './_services/nav.service';
-import {NgbModal, NgbModalConfig, NgbOffcanvas, NgbRatingConfig} from '@ng-bootstrap/ng-bootstrap';
+import {NgbModal, NgbOffcanvas, NgbOffcanvasConfig} from '@ng-bootstrap/ng-bootstrap';
 import {AsyncPipe, DOCUMENT, NgClass} from '@angular/common';
-import {filter, Observable} from 'rxjs';
+import {filter} from 'rxjs';
 import {ThemeService} from "./_services/theme.service";
 import {SideNavComponent} from './sidenav/_components/side-nav/side-nav.component';
 import {NavHeaderComponent} from "./nav/_components/nav-header/nav-header.component";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {ServerService} from "./_services/server.service";
 import {PreferenceNavComponent} from "./sidenav/preference-nav/preference-nav.component";
-import {Breakpoint, UtilityService} from "./shared/_services/utility.service";
+import {UtilityService} from "./shared/_services/utility.service";
 import {TranslocoService} from "@jsverse/transloco";
 import {VersionService} from "./_services/version.service";
 import {LicenseService} from "./_services/license.service";
 import {LocalizationService} from "./_services/localization.service";
+import {BreakpointService} from "./_services/breakpoint.service";
+import {KeyBindService} from "./_services/key-bind.service";
+import {KeyBindTarget} from "./_models/preferences/preferences";
 
 @Component({
     selector: 'app-root',
@@ -27,10 +39,6 @@ import {LocalizationService} from "./_services/localization.service";
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class AppComponent implements OnInit {
-  protected readonly Breakpoint = Breakpoint;
-
-
-
   private readonly destroyRef = inject(DestroyRef);
   private readonly offcanvas = inject(NgbOffcanvas);
   protected readonly navService = inject(NavService);
@@ -44,19 +52,25 @@ export class AppComponent implements OnInit {
   private readonly document = inject(DOCUMENT);
   private readonly translocoService = inject(TranslocoService);
   private readonly versionService = inject(VersionService); // Needs to be injected to run background job
+  private readonly breakpointService = inject(BreakpointService); // Needs to be injected to run background job
   private readonly licenseService = inject(LicenseService);
   private readonly localizationService = inject(LocalizationService);
+  private readonly ngbCanvasConfig = inject(NgbOffcanvasConfig);
+  private readonly keyBindService = inject(KeyBindService);
 
-  transitionState$!: Observable<boolean>;
+  transitionState = computed(() => this.accountService.userPreferences()?.noTransitions ?? false);
 
 
-  constructor(ratingConfig: NgbRatingConfig, modalConfig: NgbModalConfig) {
+  constructor() {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-    modalConfig.fullscreen = 'lg';
+    effect(() => {
+      this.applyAnimationState(this.transitionState(), reducedMotion.matches);
+    });
 
-    // Setup default rating config
-    ratingConfig.max = 5;
-    ratingConfig.resettable = true;
+    reducedMotion.addEventListener('change', () => {
+      this.applyAnimationState(this.transitionState(), reducedMotion.matches);
+    });
 
     // Close any open modals when a route change occurs
     this.router.events
@@ -82,24 +96,21 @@ export class AppComponent implements OnInit {
         }
       });
 
-
-    this.transitionState$ = this.accountService.currentUser$.pipe(
-      map((user) => {
-      if (!user) return false;
-      return user.preferences.noTransitions;
-    }), takeUntilDestroyed(this.destroyRef));
-
     this.localizationService.getLocales().subscribe(); // This will cache the localizations on startup
+
+    this.keyBindService.registerListener(
+      this.destroyRef,
+      (_)=> this.router.navigateByUrl('/').catch(console.error),
+      [KeyBindTarget.NavigateHome]
+    );
   }
 
-  @HostListener('window:resize', ['$event'])
-  @HostListener('window:orientationchange', ['$event'])
+  @HostListener('window:resize', [])
+  @HostListener('window:orientationchange', [])
   setDocHeight() {
     // Sets a CSS variable for the actual device viewport height. Needed for mobile dev.
     const vh = window.innerHeight * 0.01;
     this.document.documentElement.style.setProperty('--vh', `${vh}px`);
-    this.utilityService.activeBreakpointSource.next(this.utilityService.getActiveBreakpoint());
-    this.utilityService.updateUserBreakpoint();
   }
 
   ngOnInit(): void {
@@ -109,16 +120,24 @@ export class AppComponent implements OnInit {
   }
 
 
+  private applyAnimationState(userDisabled: boolean, reducedMotion: boolean) {
+    const shouldDisable = userDisabled || reducedMotion;
+    this.ngbCanvasConfig.animation = !shouldDisable;
+
+    if (shouldDisable) {
+      document.documentElement.classList.add('animate-disabled');
+    } else {
+      document.documentElement.classList.remove('animate-disabled');
+    }
+  }
+
   setCurrentUser() {
-    const user = this.accountService.currentUserSignal();
+    const user = this.accountService.currentUser();
     if (!user) return;
 
-    // Refresh the user data
-    this.accountService.refreshAccount().subscribe(account => {
-      if (this.accountService.hasAdminRole(user)) {
-        this.licenseService.licenseInfo().subscribe();
-      }
-    });
+    if (this.accountService.hasAdminRole()) {
+      this.licenseService.getLicenseInfo().subscribe();
+    }
 
     // Bootstrap anything that's needed
     this.themeService.getThemes().subscribe();

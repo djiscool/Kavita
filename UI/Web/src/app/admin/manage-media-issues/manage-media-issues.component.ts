@@ -1,94 +1,180 @@
 import {
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
+  computed,
   DestroyRef,
-  EventEmitter,
+  effect,
+  ElementRef,
   inject,
   OnInit,
-  Output,
-  QueryList,
-  ViewChildren
+  output,
+  signal,
+  untracked,
+  viewChild
 } from '@angular/core';
-import {BehaviorSubject, filter, Observable, shareReplay} from 'rxjs';
-import {compare, SortableHeader, SortEvent} from 'src/app/_single-module/table/_directives/sortable-header.directive';
-import {KavitaMediaError} from '../_models/media-error';
-import {ServerService} from 'src/app/_services/server.service';
-import {EVENTS, MessageHubService} from 'src/app/_services/message-hub.service';
-import {FormControl, FormGroup, ReactiveFormsModule} from '@angular/forms';
+import {filter, map, Observable, switchMap} from 'rxjs';
+import {ToastrService} from '@openng/ngx-toastr';
+import {allMediaErrorReasons, KavitaMediaError, MediaErrorReason} from '../_models/media-error';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
-import {FilterPipe} from '../../_pipes/filter.pipe';
-import {TranslocoDirective} from "@jsverse/transloco";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {WikiLink} from "../../_models/wiki";
-import {UtcToLocalTimePipe} from "../../_pipes/utc-to-local-time.pipe";
-import {DefaultDatePipe} from "../../_pipes/default-date.pipe";
-import {ColumnMode, NgxDatatableModule} from "@siemens/ngx-datatable";
+import {ServerService} from "../../_services/server.service";
+import {EVENTS, MessageHubService} from "../../_services/message-hub.service";
+import {NotificationProgressEvent} from "../../_models/events/notification-progress-event";
+import {FilterFieldComponent} from "../../shared/_components/filter-field/filter-field.component";
+import {matchesQuery} from "../../_helpers/filtered";
+import {EnumOption, SettingSelectComponent} from "../../settings/_components/setting-enum-select/setting-select.component";
+import {form, FormField} from "@angular/forms/signals";
+import {MediaErrorReasonPipe} from "../../_pipes/media-error-reason.pipe";
+import {TranslocoInjectComponent} from "../../shared/_components/transloco-inject/transloco-inject.component";
+import {TranslocoSlotDirective} from "../../_directives/transloco-slot.directive";
+import {MediaIssuesTableComponent} from "./media-issues-table/media-issues-table.component";
+import {
+  NgbAccordionBody,
+  NgbAccordionButton,
+  NgbAccordionCollapse,
+  NgbAccordionDirective,
+  NgbAccordionHeader,
+  NgbAccordionItem
+} from "@ng-bootstrap/ng-bootstrap";
+import {LoadingComponent} from "../../shared/loading/loading.component";
+import {ConfirmService} from "../../shared/confirm.service";
+import {EmptyStateComponent} from "../../shared/_components/empty-state/empty-state.component";
+import {FilterableSelectComponent} from "../../shared/_components/filterable-select/filterable-select.component";
+
+interface FormModel {
+  libraryId: number | null;
+  seriesId: number | null;
+  reason: MediaErrorReason | null;
+}
 
 @Component({
-    selector: 'app-manage-media-issues',
-    templateUrl: './manage-media-issues.component.html',
-    styleUrls: ['./manage-media-issues.component.scss'],
-    imports: [ReactiveFormsModule, FilterPipe, TranslocoDirective, UtcToLocalTimePipe, DefaultDatePipe, NgxDatatableModule],
-    changeDetection: ChangeDetectionStrategy.OnPush,
+  selector: 'app-manage-media-issues',
+  templateUrl: './manage-media-issues.component.html',
+  styleUrl: './manage-media-issues.component.scss',
+  imports: [TranslocoDirective, FilterFieldComponent, SettingSelectComponent, FormField, MediaErrorReasonPipe,
+    TranslocoInjectComponent, TranslocoSlotDirective, MediaIssuesTableComponent, NgbAccordionDirective, NgbAccordionItem,
+    NgbAccordionHeader, NgbAccordionButton, NgbAccordionCollapse, NgbAccordionBody, LoadingComponent, EmptyStateComponent, FilterableSelectComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageMediaIssuesComponent implements OnInit {
 
-  protected readonly ColumnMode = ColumnMode;
-
-  @Output() alertCount = new EventEmitter<number>();
-  @ViewChildren(SortableHeader<KavitaMediaError>) headers!: QueryList<SortableHeader<KavitaMediaError>>;
+  readonly alertCount = output<number>();
 
   private readonly serverService = inject(ServerService);
   private readonly messageHub = inject(MessageHubService);
-  private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly confirmService = inject(ConfirmService);
+  private readonly toastr = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
-  protected readonly WikiLink = WikiLink;
 
-  messageHubUpdate$ = this.messageHub.messages$.pipe(takeUntilDestroyed(this.destroyRef), filter(m => m.event === EVENTS.ScanSeries), shareReplay());
-  currentSort = new BehaviorSubject<SortEvent<KavitaMediaError>>({column: 'extension', direction: 'asc'});
-  currentSort$: Observable<SortEvent<KavitaMediaError>> = this.currentSort.asObservable();
+  private readonly results = viewChild.required<ElementRef<HTMLElement>>('results');
 
-  data: Array<KavitaMediaError> = [];
-  isLoading = true;
-  formGroup = new FormGroup({
-    filter: new FormControl('', [])
+  protected data = signal<KavitaMediaError[]>([]);
+  protected isLoading = signal(true);
+  protected filterQuery = signal('');
+  private readonly formModel = signal<FormModel>({
+    libraryId: null,
+    seriesId: null,
+    reason: null,
+  });
+  protected readonly formGroup = form(this.formModel);
+
+  /** Maps libraryId -> name */
+  protected readonly libraryNames = computed(() => {
+    const names = new Map<number, string>();
+    for (const issue of this.data()) {
+      if (issue.libraryId != null && issue.libraryName) {
+        names.set(issue.libraryId, issue.libraryName);
+      }
+    }
+    return names;
+  });
+  protected readonly libraryOptions = computed(() => [...this.libraryNames().entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([id]) => id));
+
+  /** Series with issues in the picked library, labelled with their library while no library is picked */
+  protected readonly seriesOptions = computed<EnumOption<number>[]>(() => {
+    const libraryId = this.formModel().libraryId;
+    const options = new Map<number, string>();
+    for (const issue of this.data()) {
+      if (issue.seriesId == null || !issue.seriesName) continue;
+      if (libraryId !== null && issue.libraryId !== libraryId) continue;
+
+      options.set(issue.seriesId, libraryId === null ? `${issue.seriesName} (${issue.libraryName})` : issue.seriesName);
+    }
+    return [...options.entries()]
+      .map(([value, label]) => ({value, label}))
+      .sort((a, b) => a.label.localeCompare(b.label));
   });
 
+  private readonly filteredData = computed(() => {
+    const {libraryId, seriesId, reason} = this.formModel();
+    const query = this.filterQuery();
+
+    return this.data().filter(d => (libraryId === null || d.libraryId === libraryId)
+      && (seriesId === null || d.seriesId === seriesId)
+      && (reason === null || d.reason === reason)
+      && matchesQuery(d, query, 'filePath', 'seriesName', 'libraryName', 'details'));
+  });
+  protected readonly activeIssues = computed(() => this.filteredData().filter(d => !d.isDismissed));
+  protected readonly hasActiveIssues = computed(() => this.data().some(d => !d.isDismissed));
+  protected readonly dismissedIssues = computed(() => this.filteredData().filter(d => d.isDismissed));
+
+  constructor() {
+    // A library change or a reload can drop the picked series from the options, which would leave an empty list
+    effect(() => {
+      const seriesId = this.formModel().seriesId;
+      if (seriesId === null || this.seriesOptions().some(o => o.value === seriesId)) return;
+
+      untracked(() => this.formModel.update(model => ({...model, seriesId: null})));
+    });
+  }
+
   ngOnInit(): void {
-
     this.loadData();
+    this.messageHub.messages$.pipe(
+      filter(m => m.event === EVENTS.NotificationProgress),
+      map(m => m.payload as NotificationProgressEvent),
+      filter(evt => evt.name === EVENTS.ScanProgress && evt.eventType === 'ended'),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => this.loadData());
+  }
 
-    this.messageHubUpdate$.subscribe(_ => this.loadData());
+  protected loadData() {
+    this.serverService.getMediaErrors().subscribe(d => this.setData(d));
+  }
 
-    this.currentSort$.subscribe(sortConfig => {
-      this.data = (sortConfig.column) ? this.data.sort((a: KavitaMediaError, b: KavitaMediaError) => {
-        if (sortConfig.column === '') return 0;
-        const res = compare(a[sortConfig.column], b[sortConfig.column]);
-        return sortConfig.direction === 'asc' ? res : -res;
-      }) : this.data;
-      this.cdRef.markForCheck();
+  protected dismiss(ids: number[]) {
+    this.reloadAfter(this.serverService.dismissMediaErrors(ids), translate('manage-media-issues.dismiss-success', {count: ids.length}));
+  }
+
+  protected restore(ids: number[]) {
+    this.reloadAfter(this.serverService.undismissMediaErrors(ids), translate('manage-media-issues.restore-success', {count: ids.length}));
+  }
+
+  protected async clearAll() {
+    if (!await this.confirmService.confirm(translate('toasts.confirm-clear-media-issues'))) return;
+    this.reloadAfter(this.serverService.clearMediaAlerts(), translate('manage-media-issues.clear-success'));
+  }
+
+  private setData(data: KavitaMediaError[]) {
+    this.data.set(data);
+    this.isLoading.set(false);
+    this.alertCount.emit(data.filter(issue => !issue.isDismissed).length);
+  }
+
+  /**
+   * The button that was pressed leaves with its row, so focus moves to the results instead of falling to the page
+   */
+  private reloadAfter(request: Observable<unknown>, success: string) {
+    request.pipe(switchMap(() => this.serverService.getMediaErrors())).subscribe(d => {
+      this.setData(d);
+      this.toastr.success(success);
+      this.results().nativeElement.focus();
     });
   }
 
-
-  loadData() {
-    this.isLoading = true;
-    this.cdRef.markForCheck();
-    this.serverService.getMediaErrors().subscribe(d => {
-      this.data = d;
-      this.isLoading = false;
-      this.alertCount.emit(d.length);
-      this.cdRef.detectChanges();
-    });
-  }
-
-  clear() {
-    this.serverService.clearMediaAlerts().subscribe(_ => this.loadData());
-  }
-
-  filterList = (listItem: KavitaMediaError) => {
-    const query = (this.formGroup.get('filter')?.value || '').toLowerCase();
-    return listItem.comment.toLowerCase().indexOf(query) >= 0 || listItem.filePath.toLowerCase().indexOf(query) >= 0 || listItem.details.indexOf(query) >= 0;
-  }
-
+  protected readonly WikiLink = WikiLink;
+  protected readonly allMediaErrorReasons = allMediaErrorReasons;
 }

@@ -5,29 +5,36 @@ import {
   Component,
   DestroyRef,
   effect,
-  inject
+  inject,
+  Signal,
+  untracked
 } from '@angular/core';
 import {TranslocoDirective} from "@jsverse/transloco";
-import {AsyncPipe, DOCUMENT, NgClass} from "@angular/common";
+import {DOCUMENT, NgClass} from "@angular/common";
 import {NavService} from "../../_services/nav.service";
 import {AccountService, Role} from "../../_services/account.service";
 import {SideNavItemComponent} from "../_components/side-nav-item/side-nav-item.component";
 import {ActivatedRoute, NavigationEnd, Router} from "@angular/router";
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {takeUntilDestroyed, toObservable, toSignal} from "@angular/core/rxjs-interop";
 import {SettingFragmentPipe} from "../../_pipes/setting-fragment.pipe";
-import {map, Observable, of, shareReplay, switchMap, take, tap} from "rxjs";
+import {map, of, shareReplay, switchMap, take} from "rxjs";
 import {ServerService} from "../../_services/server.service";
 import {ScrobblingService} from "../../_services/scrobbling.service";
-import {User} from "../../_models/user";
+import {User} from "../../_models/user/user";
 import {filter} from "rxjs/operators";
-import {Breakpoint, UtilityService} from "../../shared/_services/utility.service";
+import {UtilityService} from "../../shared/_services/utility.service";
 import {LicenseService} from "../../_services/license.service";
 import {ManageService} from "../../_services/manage.service";
 import {MatchStateOption} from "../../_models/kavitaplus/match-state-option";
+import {KeyBindService} from "../../_services/key-bind.service";
+import {KeyBindTarget} from "../../_models/preferences/preferences";
+import {BreakpointService} from "../../_services/breakpoint.service";
+import {KavitaPlusAuditService} from "../../_services/kavitaplus-audit.service";
 
 export enum SettingsTabId {
 
   // Admin
+  Activity = 'admin-activity',
   General = 'admin-general',
   OpenIDConnect = 'admin-oidc',
   Email = 'admin-email',
@@ -40,6 +47,8 @@ export enum SettingsTabId {
   MediaIssues = 'admin-media-issues',
   EmailHistory = 'admin-email-history',
   ManageMetadata = 'admin-public-metadata',
+  AdminDevices = 'admin-device',
+  Scrobbling = 'scrobbling',
 
   // Kavita+
   KavitaPlusLicense = 'admin-kavitaplus',
@@ -47,25 +56,30 @@ export enum SettingsTabId {
   MappingsImport = 'admin-mappings-import',
   MatchedMetadata = 'admin-matched-metadata',
   ManageUserTokens = 'admin-manage-tokens',
+  ManageKavitaPlusActivity = 'admin-manage-kavitaplus-activity',
   Metadata = 'admin-metadata',
 
   // Non-Admin
   Account = 'account',
   Preferences = 'preferences',
+  Connections = 'scrobble-settings',
+  CustomKeyBinds = 'custom-key-binds',
   ReadingProfiles = 'reading-profiles',
+  Font = 'font',
   Clients = 'clients',
   Theme = 'theme',
   Devices = 'devices',
-  UserStats = 'user-stats',
-  Scrobbling = 'scrobbling',
   ScrobblingHolds = 'scrobble-holds',
+  MyActivity = 'my-activity',
   Customize = 'customize',
-  CBLImport = 'cbl-import'
+  CBLImport = 'cbl-import',
+  RemapRules = 'remap-rules',
 }
 
 export enum SettingSectionId {
   AccountSection = 'account-section-title',
   ServerSection = 'server-section-title',
+  InsightsSection = 'insights-section-title',
   ImportSection = 'import-section-title',
   InfoSection = 'info-section-title',
   KavitaPlusSection = 'kavitaplus-section-title',
@@ -83,14 +97,14 @@ class SideNavItem {
    * If you have any of these, the item will be restricted
    */
   restrictRoles: Array<Role> = [];
-  badgeCount$?: Observable<number> | undefined;
+  badgeCount?: Signal<number> | undefined;
   kPlusOnly: boolean;
 
-  constructor(fragment: SettingsTabId, roles: Array<Role> = [], badgeCount$: Observable<number> | undefined = undefined, restrictRoles: Array<Role> = [], kPlusOnly: boolean = false) {
+  constructor(fragment: SettingsTabId, roles: Array<Role> = [], badgeCount: Signal<number> | undefined = undefined, restrictRoles: Array<Role> = [], kPlusOnly: boolean = false) {
     this.fragment = fragment;
     this.roles = roles;
     this.restrictRoles = restrictRoles;
-    this.badgeCount$ = badgeCount$;
+    this.badgeCount = badgeCount;
     this.kPlusOnly = kPlusOnly;
   }
 
@@ -98,11 +112,11 @@ class SideNavItem {
    * Create a new SideNavItem with kPlusOnly set to true
    * @param fragment
    * @param roles
-   * @param badgeCount$
+   * @param badgeCount
    * @param restrictRoles
    */
-  static kPlusOnly(fragment: SettingsTabId, roles: Array<Role> = [], badgeCount$: Observable<number> | undefined = undefined, restrictRoles: Array<Role> = []) {
-    return new SideNavItem(fragment, roles, badgeCount$, restrictRoles, true);
+  static kPlusOnly(fragment: SettingsTabId, roles: Array<Role> = [], badgeCount: Signal<number> | undefined = undefined, restrictRoles: Array<Role> = []) {
+    return new SideNavItem(fragment, roles, badgeCount, restrictRoles, true);
   }
 
 }
@@ -112,7 +126,6 @@ class SideNavItem {
     imports: [
         TranslocoDirective,
         NgClass,
-        AsyncPipe,
         SideNavItemComponent,
         SettingFragmentPipe
     ],
@@ -134,83 +147,98 @@ export class PreferenceNavComponent implements AfterViewInit {
   protected readonly utilityService = inject(UtilityService);
   private readonly manageService = inject(ManageService);
   private readonly document = inject(DOCUMENT);
+  private readonly keyBindService = inject(KeyBindService);
+  protected readonly breakpointService = inject(BreakpointService);
+  protected readonly kavitaplusAuditService = inject(KavitaPlusAuditService);
+
+  readonly hasValidLicense$ = toObservable(this.licenseService.hasActiveLicense);
+
+  private readonly navEnd = toSignal(
+    this.router.events.pipe(
+      filter((event): event is NavigationEnd => event instanceof NavigationEnd)
+    )
+  );
 
   /**
    * This links to settings.component.html which has triggers on what underlying component to render out.
    */
   sections: Array<PrefSection> = [];
 
-  collapseSideNavOnMobileNav$ = this.router.events.pipe(
-    filter(event => event instanceof NavigationEnd),
-    takeUntilDestroyed(this.destroyRef),
-    map(evt => evt as NavigationEnd),
-    switchMap(_ => this.utilityService.activeBreakpoint$),
-    filter((b) => b < Breakpoint.Tablet),
-    switchMap(() => this.navService.sideNavCollapsed$),
-    take(1),
-    filter(collapsed => !collapsed),
-    tap(c => {
-      this.navService.collapseSideNav(true);
-    }),
-  );
 
-  private readonly matchedMetadataBadgeCount$ = this.accountService.currentUser$.pipe(
-    take(1),
-    switchMap(user => {
-      if (!user || !this.accountService.hasAdminRole(user)) {
-        // If no user or user does not have the admin role, return an observable of -1
-        return of(-1);
-      } else {
+  private readonly matchedMetadataBadgeCount = toSignal(
+    toObservable(this.accountService.hasAdminRole).pipe(
+      take(1),
+      filter(_ => this.licenseService.hasActiveLicense()),
+      switchMap(isAdmin => {
+        if (!isAdmin) return of(-1);
         return this.manageService.getAllKavitaPlusSeries({
           matchStateOption: MatchStateOption.Error,
           libraryType: -1,
           searchTerm: ''
         }).pipe(
           takeUntilDestroyed(this.destroyRef),
-          map(d => d.length),
+          map(d => d.pagination.totalItems),
           shareReplay({bufferSize: 1, refCount: true})
         );
-      }
-    })
+      })
+    ),
+    { initialValue: -1 }
   );
 
-  private readonly scrobblingErrorBadgeCount$ = this.accountService.currentUser$.pipe(
-    take(1),
-    switchMap(user => {
-      if (!user || !this.accountService.hasAdminRole(user)) {
-        // If no user or user does not have the admin role, return an observable of -1
-        return of(-1);
-      } else {
+  private readonly scrobblingFailuresBadgeCount = toSignal(
+    of(this.licenseService.hasActiveLicense()).pipe(
+      switchMap(hasLicense => hasLicense ? this.kavitaplusAuditService.getFailedScrobbleEvents() : of(-1)),
+      takeUntilDestroyed(this.destroyRef),
+      shareReplay({ bufferSize: 1, refCount: true })
+    ),
+    { initialValue: -1 }
+  );
+
+  private readonly scrobblingErrorBadgeCount = toSignal(
+    toObservable(this.accountService.hasAdminRole).pipe(
+      take(1),
+      switchMap(isAdmin => {
+        if (!isAdmin) return of(-1);
         return this.scrobbleService.getScrobbleErrors().pipe(
           takeUntilDestroyed(this.destroyRef),
           map(d => d.length),
           shareReplay({bufferSize: 1, refCount: true})
         );
-      }
-    })
+      })
+    ),
+    { initialValue: -1 }
   );
 
-  private readonly mediaIssuesBadgeCount$ = this.accountService.currentUser$.pipe(
-    take(1),
-    switchMap(user => {
-      if (!user || !this.accountService.hasAdminRole(user)) {
-        // If no user or user does not have the admin role, return an observable of -1
-        return of(-1);
-      }
-
-      return this.serverService.getMediaErrors().pipe(
-        takeUntilDestroyed(this.destroyRef),
-        map(d => d.length),
-        shareReplay({ bufferSize: 1, refCount: true })
-      );
-    })
+  private readonly mediaIssuesBadgeCount = toSignal(
+    toObservable(this.accountService.hasAdminRole).pipe(
+      take(1),
+      switchMap(isAdmin => {
+        if (!isAdmin) return of(-1);
+        return this.serverService.getMediaErrors().pipe(
+          takeUntilDestroyed(this.destroyRef),
+          map(d => d.filter(d2 => !d2.isDismissed).length),
+          shareReplay({ bufferSize: 1, refCount: true })
+        );
+      })
+    ),
+    { initialValue: -1 }
   );
 
   constructor() {
-    this.collapseSideNavOnMobileNav$.subscribe();
+    effect(() => {
+      const navEvent = this.navEnd();
+      if (!navEvent) return;
+
+      if (this.breakpointService.isAboveMobile()) return;
+
+      const isCollapsed = untracked(() => this.navService.sideNavCollapsedSignal());
+      if (isCollapsed) return;
+
+      this.navService.collapseSideNav(true);
+    });
 
     // Ensure that on mobile, we are collapsed by default
-    if (this.utilityService.getActiveBreakpoint() < Breakpoint.Tablet) {
+    if (this.breakpointService.isMobileOrBelow()) {
       this.navService.collapseSideNav(true);
     }
 
@@ -218,14 +246,24 @@ export class PreferenceNavComponent implements AfterViewInit {
       {
         title: SettingSectionId.AccountSection,
         children: [
-          new SideNavItem(SettingsTabId.Account, []),
+          new SideNavItem(SettingsTabId.Account),
           new SideNavItem(SettingsTabId.Preferences),
+          new SideNavItem(SettingsTabId.CustomKeyBinds),
           new SideNavItem(SettingsTabId.ReadingProfiles),
           new SideNavItem(SettingsTabId.Customize, [], undefined, [Role.ReadOnly]),
           new SideNavItem(SettingsTabId.Clients),
           new SideNavItem(SettingsTabId.Theme),
+          new SideNavItem(SettingsTabId.Font),
           new SideNavItem(SettingsTabId.Devices),
-          new SideNavItem(SettingsTabId.UserStats),
+          new SideNavItem(SettingsTabId.RemapRules, [], undefined, [Role.ReadOnly]),
+        ]
+      },
+      {
+        title: SettingSectionId.InsightsSection,
+        children: [
+          new SideNavItem(SettingsTabId.Activity, [Role.Admin]),
+          new SideNavItem(SettingsTabId.AdminDevices, [Role.Admin]),
+          new SideNavItem(SettingsTabId.Statistics, [Role.Admin]),
         ]
       },
       {
@@ -253,8 +291,7 @@ export class PreferenceNavComponent implements AfterViewInit {
         title: SettingSectionId.InfoSection,
         children: [
           new SideNavItem(SettingsTabId.System, [Role.Admin]),
-          new SideNavItem(SettingsTabId.Statistics, [Role.Admin]),
-          new SideNavItem(SettingsTabId.MediaIssues, [Role.Admin], this.mediaIssuesBadgeCount$),
+          new SideNavItem(SettingsTabId.MediaIssues, [Role.Admin], this.mediaIssuesBadgeCount),
           new SideNavItem(SettingsTabId.EmailHistory, [Role.Admin]),
         ]
       },
@@ -262,11 +299,14 @@ export class PreferenceNavComponent implements AfterViewInit {
         title: SettingSectionId.KavitaPlusSection,
         children: [
           new SideNavItem(SettingsTabId.KavitaPlusLicense, [Role.Admin]),
+          SideNavItem.kPlusOnly(SettingsTabId.Connections),
           SideNavItem.kPlusOnly(SettingsTabId.ManageUserTokens, [Role.Admin]),
           SideNavItem.kPlusOnly(SettingsTabId.Metadata, [Role.Admin]),
-          SideNavItem.kPlusOnly(SettingsTabId.MatchedMetadata, [Role.Admin], this.matchedMetadataBadgeCount$),
+          SideNavItem.kPlusOnly(SettingsTabId.MatchedMetadata, [Role.Admin], this.matchedMetadataBadgeCount),
+          SideNavItem.kPlusOnly(SettingsTabId.ManageKavitaPlusActivity),
+          SideNavItem.kPlusOnly(SettingsTabId.MyActivity, [], this.scrobblingFailuresBadgeCount),
           SideNavItem.kPlusOnly(SettingsTabId.ScrobblingHolds),
-          SideNavItem.kPlusOnly(SettingsTabId.Scrobbling, [], this.scrobblingErrorBadgeCount$),
+          SideNavItem.kPlusOnly(SettingsTabId.Scrobbling, [Role.Admin], this.scrobblingErrorBadgeCount),
         ]
       }
     ];
@@ -276,9 +316,17 @@ export class PreferenceNavComponent implements AfterViewInit {
 
     // Refresh visibility if license changes
     effect(() => {
-      this.licenseService.hasValidLicenseSignal();
+      this.licenseService.hasActiveLicense();
       this.cdRef.markForCheck();
     });
+
+    this.keyBindService.registerListener(
+      this.destroyRef,
+      () => this.router.navigate(['/settings'], { fragment: SettingsTabId.MyActivity})
+        .then(() => this.scrollToActiveItem()),
+      [KeyBindTarget.NavigateToScrobbling],
+      {condition$: this.hasValidLicense$},
+    );
   }
 
   ngAfterViewInit() {
@@ -300,12 +348,10 @@ export class PreferenceNavComponent implements AfterViewInit {
   }
 
   isItemVisible(user: User, item: SideNavItem) {
-    return this.accountService.hasAnyRole(user, item.roles, item.restrictRoles) && (!item.kPlusOnly || this.licenseService.hasValidLicenseSignal())
+    return this.accountService.hasAnyRole(user, item.roles, item.restrictRoles) && (!item.kPlusOnly || this.licenseService.hasActiveLicense())
   }
 
   collapse() {
     this.navService.toggleSideNav();
   }
-
-  protected readonly Breakpoint = Breakpoint;
 }

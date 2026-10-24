@@ -1,26 +1,24 @@
-import {Component, EventEmitter, inject, input, Output} from '@angular/core';
+import {ChangeDetectionStrategy, Component, inject, input, output} from '@angular/core';
 import {PersonalToC} from "../../../_models/readers/personal-toc";
-import {NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
 import {TranslocoDirective} from "@jsverse/transloco";
 import {ReaderService} from "../../../_services/reader.service";
 
 @Component({
   selector: 'app-text-bookmark-item',
   imports: [
-    NgbTooltip,
     TranslocoDirective
   ],
   templateUrl: './text-bookmark-item.component.html',
-  styleUrl: './text-bookmark-item.component.scss'
+  styleUrl: './text-bookmark-item.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TextBookmarkItemComponent {
-  bookmark = input.required<PersonalToC>();
-
-  @Output() loadBookmark =  new EventEmitter<PersonalToC>();
-  @Output() removeBookmark =  new EventEmitter<PersonalToC>();
-
   private readonly readerService = inject(ReaderService);
 
+  bookmark = input.required<PersonalToC>();
+
+  readonly loadBookmark = output<PersonalToC>();
+  readonly removeBookmark = output<PersonalToC>();
 
   remove(evt: Event) {
     evt.stopPropagation();

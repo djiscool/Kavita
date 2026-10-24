@@ -15,22 +15,18 @@
 #    useradd -o -u "$PUID" -g "$PGID" -d /kavita kavita
 #fi
 
-#Checks if the config file exists, and creates it if it does not
-if [ ! -f "/kavita/config/appsettings.json" ]; then
-    echo "Kavita configuration file does not exist, copying from temp..."
-    cp /tmp/config/appsettings.json /kavita/config/appsettings.json
-    if [ -f "/kavita/config/appsettings.json" ]; then
-        echo "Copy completed successfully, starting app..."
-    else
-        echo "Copy failed, check folder permissions. Exiting..."
-        exit
-    fi
+# https://www.libvips.org/API/current/developer-checklist.html#linux-memory-allocator
+JEMALLOC_PATH=$(ldconfig -p | grep -m1 'libjemalloc.so.2' | awk '{print $NF}')
+if [ -n "$JEMALLOC_PATH" ]; then
+    export LD_PRELOAD="$JEMALLOC_PATH"
+else
+    echo "jemalloc not found, using default allocator. This may cause increased memory usage"
 fi
 
 echo "Starting Kavita"
 echo ls -l "/kavita/config/appsettings.json"
 
-./Kavita
+exec ./Kavita
 
 #if [[ "$PUID" -eq 0 ]]; then
 #    # Run as root

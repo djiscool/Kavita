@@ -1,47 +1,49 @@
-import {
-  ChangeDetectionStrategy,
-  ChangeDetectorRef,
-  Component,
-  computed,
-  DestroyRef,
-  inject,
-  model,
-  OnInit
-} from '@angular/core';
-import {FormControl, FormGroup, ReactiveFormsModule, Validators} from '@angular/forms';
+import {ChangeDetectionStrategy, Component, computed, effect, inject, model, OnInit, signal} from '@angular/core';
 import {NgbActiveModal} from '@ng-bootstrap/ng-bootstrap';
-import {AgeRestriction} from 'src/app/_models/metadata/age-restriction';
-import {Library} from 'src/app/_models/library/library';
-import {Member} from 'src/app/_models/auth/member';
-import {AccountService} from 'src/app/_services/account.service';
 import {SentenceCasePipe} from '../../_pipes/sentence-case.pipe';
 import {RestrictionSelectorComponent} from '../../user-settings/restriction-selector/restriction-selector.component';
-import {LibrarySelectorComponent} from '../library-selector/library-selector.component';
-import {RoleSelectorComponent} from '../role-selector/role-selector.component';
-import {AsyncPipe} from '@angular/common';
-import {TranslocoDirective} from "@jsverse/transloco";
-import {debounceTime, distinctUntilChanged, Observable, startWith, tap} from "rxjs";
-import {map} from "rxjs/operators";
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {ServerSettings} from "../_models/server-settings";
-import {IdentityProvider, IdentityProviders} from "../../_models/user";
+import {allIdentityProviders, IdentityProvider} from "../../_models/user/user";
 import {IdentityProviderPipePipe} from "../../_pipes/identity-provider.pipe";
+import {
+  MultiCheckBoxItem,
+  SettingMultiCheckBox
+} from "../../settings/_components/setting-multi-check-box/setting-multi-check-box.component";
+import {LibraryService} from "../../_services/library.service";
+import {AccountService, allRoles, Role} from "../../_services/account.service";
+import {Member} from "../../_models/auth/member";
+import {Library} from "../../_models/library/library";
+import {AgeRestriction} from "../../_models/metadata/age-restriction";
+import {ValidationErrorsComponent} from "../../shared/_components/validation-errors/validation-errors.component";
+import {FormFieldDirective} from "../../_directives/form-field.directive";
+import {form, FormField, pattern, required, validate} from "@angular/forms/signals";
+import {UpdateUserRequest} from "../../_models/user/update-user-request";
+import {SettingSelectComponent} from "../../settings/_components/setting-enum-select/setting-select.component";
 
 const AllowedUsernameCharacters = /^[a-zA-Z0-9\-._@+/]*$/;
 const EmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+interface EditUserForm {
+  email: string;
+  username: string;
+  identityProvider: IdentityProvider;
+  roles: Role[];
+  libraries: number[];
+}
+
 @Component({
-    selector: 'app-edit-user',
-    templateUrl: './edit-user.component.html',
-    styleUrls: ['./edit-user.component.scss'],
-  imports: [ReactiveFormsModule, RoleSelectorComponent, LibrarySelectorComponent, RestrictionSelectorComponent, SentenceCasePipe, TranslocoDirective, AsyncPipe, IdentityProviderPipePipe],
-    changeDetection: ChangeDetectionStrategy.OnPush
+  selector: 'app-edit-user',
+  templateUrl: './edit-user.component.html',
+  styleUrls: ['./edit-user.component.scss'],
+  imports: [RestrictionSelectorComponent, SentenceCasePipe, TranslocoDirective,
+    IdentityProviderPipePipe, SettingMultiCheckBox, ValidationErrorsComponent, FormFieldDirective, FormField, SettingSelectComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class EditUserComponent implements OnInit {
 
   private readonly accountService = inject(AccountService);
-  private readonly cdRef = inject(ChangeDetectorRef);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly libraryService = inject(LibraryService);
   protected readonly modal = inject(NgbActiveModal);
 
   member = model.required<Member>();
@@ -53,63 +55,88 @@ export class EditUserComponent implements OnInit {
     return setting.oidcConfig.syncUserSettings && member.identityProvider === IdentityProvider.OpenIdConnect;
   });
 
-  selectedRoles: Array<string> = [];
-  selectedLibraries: Array<number> = [];
+  libraries = signal<Library[]>([]);
+  libraryOptions = computed<MultiCheckBoxItem<number>[]>(() => this.libraries().map(l => {
+    return { label: l.name, value: l.id };
+  }));
+  roleOptions: MultiCheckBoxItem<Role>[] = allRoles.map(r => {
+    return { label: r, value: r, disableFunc: (r: Role, selected: Role[]) => {
+        return r !== Role.Admin && selected.includes(Role.Admin);
+      }}
+  });
+
   selectedRestriction!: AgeRestriction;
-  isSaving: boolean = false;
+  isSaving = signal(false);
 
-  userForm: FormGroup = new FormGroup({});
-  isEmailInvalid$!: Observable<boolean>;
 
-  allowedCharacters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+/';
+  readonly allowedCharacters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+/';
 
-  public get email() { return this.userForm.get('email'); }
-  public get username() { return this.userForm.get('username'); }
-  public get password() { return this.userForm.get('password'); }
-  public get hasAdminRoleSelected() { return this.selectedRoles.includes('Admin'); };
+  private readonly userFormModel = signal<EditUserForm>({
+    email: '',
+    username: '',
+    roles: [],
+    identityProvider: IdentityProvider.Kavita,
+    libraries: []
+  });
+  userForm = form(this.userFormModel, (schemaPath) => {
+    required(schemaPath.email);
+    validate(schemaPath.email, (ctx) => {
+      const value = ctx.value();
+      if (value === this.member().email) {
+        return null
+      }
 
+      if (EmailRegex.test(value)) {
+        return null;
+      }
+
+      return {kind: 'pattern'};
+    });
+
+    required(schemaPath.username);
+    pattern(schemaPath.username, AllowedUsernameCharacters);
+
+    required(schemaPath.identityProvider);
+  });
+
+  hasAdminRoleSelected = computed(() => {
+    return this.userForm.roles().value().includes(Role.Admin);
+  });
+
+  readOnlyWarning = computed(() => {
+    const roles = this.userForm.roles().value();
+    return roles.includes(Role.Admin)
+      ? translate('edit-user.warning-read-only')
+      : undefined;
+  });
+
+  constructor() {
+    effect(() => {
+      const newIdentityProvider = this.userForm.identityProvider().value();
+      if (newIdentityProvider === IdentityProvider.OpenIdConnect) return;
+      this.member.update(m => ({
+        ...m,
+        identityProvider: newIdentityProvider,
+      }));
+    });
+
+  }
 
 
   ngOnInit(): void {
-    this.userForm.addControl('email', new FormControl(this.member().email, [Validators.required]));
-    this.userForm.addControl('username', new FormControl(this.member().username, [Validators.required, Validators.pattern(AllowedUsernameCharacters)]));
-    this.userForm.addControl('identityProvider', new FormControl(this.member().identityProvider, [Validators.required]));
+    this.libraryService.getLibraries().subscribe(libraries => this.libraries.set(libraries));
 
-    this.userForm.get('identityProvider')!.valueChanges.pipe(
-      tap(value => {
-        const newIdentityProvider = parseInt(value, 10) as IdentityProvider;
-        if (newIdentityProvider === IdentityProvider.OpenIdConnect) return;
-        this.member.set({
-          ...this.member(),
-          identityProvider: newIdentityProvider,
-        })
-      })).subscribe();
-
-    this.isEmailInvalid$ = this.userForm.get('email')!.valueChanges.pipe(
-      startWith(this.member().email),
-      distinctUntilChanged(),
-      debounceTime(10),
-      map(value => !EmailRegex.test(value)),
-      takeUntilDestroyed(this.destroyRef)
-    );
+    this.userForm.email().value.set(this.member().email);
+    this.userForm.username().value.set(this.member().username);
+    this.userForm.identityProvider().value.set(this.member().identityProvider);
+    this.userForm.roles().value.set(this.member().roles);
+    this.userForm.libraries().value.set(this.member().libraries.map(l => l.id));
 
     this.selectedRestriction = this.member().ageRestriction;
-    this.cdRef.markForCheck();
-  }
-
-  updateRoleSelection(roles: Array<string>) {
-    this.selectedRoles = roles;
-    this.cdRef.markForCheck();
   }
 
   updateRestrictionSelection(restriction: AgeRestriction) {
     this.selectedRestriction = restriction;
-    this.cdRef.markForCheck();
-  }
-
-  updateLibrarySelection(libraries: Array<Library>) {
-    this.selectedLibraries = libraries.map(l => l.id);
-    this.cdRef.markForCheck();
   }
 
   close() {
@@ -117,13 +144,12 @@ export class EditUserComponent implements OnInit {
   }
 
   save() {
-    const model = this.userForm.getRawValue();
-    model.userId = this.member().id;
-    model.roles = this.selectedRoles;
-    model.libraries = this.selectedLibraries;
-    model.ageRestriction = this.selectedRestriction;
-    model.identityProvider = parseInt(model.identityProvider, 10) as IdentityProvider;
-
+    const model = {
+      ...this.userFormModel(),
+      userId: this.member().id,
+      ageRestriction: this.selectedRestriction
+    } as UpdateUserRequest;
+    this.isSaving.set(true);
 
     this.accountService.update(model).subscribe({
       next: () => {
@@ -136,5 +162,5 @@ export class EditUserComponent implements OnInit {
   }
 
   protected readonly IdentityProvider = IdentityProvider;
-  protected readonly IdentityProviders = IdentityProviders;
+  protected readonly IdentityProviders = allIdentityProviders;
 }

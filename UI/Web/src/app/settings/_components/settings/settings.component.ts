@@ -1,14 +1,6 @@
-import {ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, inject} from '@angular/core';
-import {
-  ChangeAgeRestrictionComponent
-} from "../../../user-settings/change-age-restriction/change-age-restriction.component";
-import {ChangeEmailComponent} from "../../../user-settings/change-email/change-email.component";
-import {ChangePasswordComponent} from "../../../user-settings/change-password/change-password.component";
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, computed, DestroyRef, inject} from '@angular/core';
 import {ManageDevicesComponent} from "../../../user-settings/manage-devices/manage-devices.component";
-import {ManageOpdsComponent} from "../../../user-settings/manage-opds/manage-opds.component";
-import {
-  ManageScrobblingProvidersComponent
-} from "../../../user-settings/manage-scrobbling-providers/manage-scrobbling-providers.component";
+import {ManageAuthKeysComponent} from "../../../user-settings/manage-auth-keys/manage-auth-keys.component";
 import {
   ManageUserPreferencesComponent
 } from "../../../user-settings/manga-user-preferences/manage-user-preferences.component";
@@ -18,12 +10,9 @@ import {
 } from "../../../sidenav/_components/side-nav-companion-bar/side-nav-companion-bar.component";
 import {ThemeManagerComponent} from "../../../user-settings/theme-manager/theme-manager.component";
 import {TranslocoDirective} from "@jsverse/transloco";
-import {UserStatsComponent} from "../../../statistics/_components/user-stats/user-stats.component";
 import {SettingsTabId} from "../../../sidenav/preference-nav/preference-nav.component";
-import {AsyncPipe} from "@angular/common";
 import {AccountService} from "../../../_services/account.service";
 import {WikiLink} from "../../../_models/wiki";
-import {LicenseComponent} from "../../../admin/license/license.component";
 import {ManageEmailSettingsComponent} from "../../../admin/manage-email-settings/manage-email-settings.component";
 import {ManageLibraryComponent} from "../../../admin/manage-library/manage-library.component";
 import {ManageMediaSettingsComponent} from "../../../admin/manage-media-settings/manage-media-settings.component";
@@ -35,7 +24,6 @@ import {ServerStatsComponent} from "../../../statistics/_components/server-stats
 import {SettingFragmentPipe} from "../../../_pipes/setting-fragment.pipe";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {tap} from "rxjs";
-import {ManageScrobblingComponent} from "../../../admin/manage-scrobling/manage-scrobbling.component";
 import {ManageMediaIssuesComponent} from "../../../admin/manage-media-issues/manage-media-issues.component";
 import {
   ManageCustomizationComponent
@@ -43,9 +31,7 @@ import {
 import {
   ImportMalCollectionComponent
 } from "../../../collections/_components/import-mal-collection/import-mal-collection.component";
-import {ImportCblComponent} from "../../../reading-list/_components/import-cbl/import-cbl.component";
 import {LicenseService} from "../../../_services/license.service";
-import {ManageMatchedMetadataComponent} from "../../../admin/manage-matched-metadata/manage-matched-metadata.component";
 import {ManageUserTokensComponent} from "../../../admin/manage-user-tokens/manage-user-tokens.component";
 import {EmailHistoryComponent} from "../../../admin/email-history/email-history.component";
 import {ScrobblingHoldsComponent} from "../../../user-settings/user-holds/scrobbling-holds.component";
@@ -60,22 +46,34 @@ import {
 } from "../../../admin/manage-public-metadata-settings/manage-public-metadata-settings.component";
 import {ImportMappingsComponent} from "../../../admin/import-mappings/import-mappings.component";
 import {ManageOpenIDConnectComponent} from "../../../admin/manage-open-idconnect/manage-open-idconnect.component";
+import {FontManagerComponent} from "../../../user-settings/font-manager/font-manager/font-manager.component";
+import {ServerActivityComponent} from "../../../admin/server-activity/server-activity.component";
+import {ServerDevicesComponent} from "../../../admin/server-devices/server-devices.component";
+import {ManageCustomKeyBindsComponent} from "../../../user-settings/custom-key-binds/manage-custom-key-binds.component";
+import {CblManagerComponent} from "../../../user-settings/cbl-manager/cbl-manager.component";
+import {ManageRemapRulesComponent} from "../../../user-settings/manage-remap-rules/manage-remap-rules.component";
+import {KavitaplusActivityComponent} from "../../../user-settings/kavitaplus-activity/kavitaplus-activity.component";
+import {
+  ManageKavitaplusActivityComponent
+} from "../../../admin/kavita-plus/manage-kavitaplus-activity/manage-kavitaplus-activity.component";
+import {ManageScrobblingComponent} from "../../../admin/kavita-plus/manage-scrobling/manage-scrobbling.component";
+import {
+  ManageMatchedMetadataComponent
+} from "../../../admin/kavita-plus/manage-matched-metadata/manage-matched-metadata.component";
+import {LicenseComponent} from "../../../admin/kavita-plus/license/license.component";
+import {
+  ManageScrobbleProvidersComponent
+} from "../../../user-settings/manage-scrobble-providers/manage-scrobble-providers.component";
+import {AccountSettingsComponent} from "../../../user-settings/account-settings/account-settings.component";
 
 @Component({
-    selector: 'app-settings',
+  selector: 'app-settings',
   imports: [
-    ChangeAgeRestrictionComponent,
-    ChangeEmailComponent,
-    ChangePasswordComponent,
     ManageDevicesComponent,
-    ManageOpdsComponent,
-    ManageScrobblingProvidersComponent,
     ManageUserPreferencesComponent,
     SideNavCompanionBarComponent,
     ThemeManagerComponent,
     TranslocoDirective,
-    UserStatsComponent,
-    AsyncPipe,
     LicenseComponent,
     ManageEmailSettingsComponent,
     ManageLibraryComponent,
@@ -90,7 +88,6 @@ import {ManageOpenIDConnectComponent} from "../../../admin/manage-open-idconnect
     ManageMediaIssuesComponent,
     ManageCustomizationComponent,
     ImportMalCollectionComponent,
-    ImportCblComponent,
     ManageMatchedMetadataComponent,
     ManageUserTokensComponent,
     EmailHistoryComponent,
@@ -99,11 +96,22 @@ import {ManageOpenIDConnectComponent} from "../../../admin/manage-open-idconnect
     ManageReadingProfilesComponent,
     ManageOpenIDConnectComponent,
     ManagePublicMetadataSettingsComponent,
-    ImportMappingsComponent
+    ImportMappingsComponent,
+    FontManagerComponent,
+    ServerActivityComponent,
+    ServerDevicesComponent,
+    ManageCustomKeyBindsComponent,
+    ManageAuthKeysComponent,
+    AccountSettingsComponent,
+    CblManagerComponent,
+    ManageRemapRulesComponent,
+    KavitaplusActivityComponent,
+    ManageKavitaplusActivityComponent,
+    ManageScrobbleProvidersComponent
   ],
-    templateUrl: './settings.component.html',
-    styleUrl: './settings.component.scss',
-    changeDetection: ChangeDetectionStrategy.OnPush
+  templateUrl: './settings.component.html',
+  styleUrl: './settings.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class SettingsComponent {
 
@@ -111,14 +119,11 @@ export class SettingsComponent {
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
-  protected readonly accountService = inject(AccountService);
   protected readonly licenseService = inject(LicenseService);
-
-  protected readonly SettingsTabId = SettingsTabId;
-  protected readonly WikiLink = WikiLink;
+  protected readonly accountService = inject(AccountService);
 
   fragment: SettingsTabId = SettingsTabId.Account;
-  hasActiveLicense = false;
+  hasActiveLicense = computed(() => this.licenseService.hasActiveLicense());
 
   constructor() {
     this.route.fragment.pipe(tap(frag => {
@@ -131,16 +136,10 @@ export class SettingsComponent {
       }
       this.fragment = frag as SettingsTabId;
 
-      //this.titleService.setTitle('Kavita - ' + translate('admin-dashboard.title'));
-
       this.cdRef.markForCheck();
     }), takeUntilDestroyed(this.destroyRef)).subscribe();
-
-    this.licenseService.hasValidLicense$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(res => {
-      if (res) {
-        this.hasActiveLicense = true;
-        this.cdRef.markForCheck();
-      }
-    });
   }
+
+  protected readonly SettingsTabId = SettingsTabId;
+  protected readonly WikiLink = WikiLink;
 }

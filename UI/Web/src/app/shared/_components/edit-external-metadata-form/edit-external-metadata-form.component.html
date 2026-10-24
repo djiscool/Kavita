@@ -1,0 +1,20 @@
+<ng-container *transloco="let t; prefix: 'edit-external-metadata-form'">
+  <div class="row">
+    @for(item of subFields(); track item.key) {
+      <div class="col-md-6 col-sm-12 mb-3">
+        <app-setting-item [title]="t(item.key + '-label')" [toggleOnViewClick]="false" [showEdit]="false" [control]="item.field">
+          <ng-template #view>
+            <!--Dynamic type will not properly translate the numeric input from a string -->
+            <div class="input-group">
+              @if(getKeyInputType(item.key) === 'number') {
+                <input class="form-control" type="number" [formField]="item.numberField" inputmode="numeric" [appFormField]="item.field" />
+              } @else {
+                <input class="form-control" type="text" [formField]="item.textField" [appFormField]="item.field" />
+              }
+            </div>
+          </ng-template>
+        </app-setting-item>
+      </div>
+    }
+  </div>
+</ng-container>

@@ -1,21 +1,25 @@
-import {Injectable} from '@angular/core';
-import {NgbModal} from '@ng-bootstrap/ng-bootstrap';
+import {inject, Injectable} from '@angular/core';
 import {take} from 'rxjs/operators';
 import {ConfirmDialogComponent} from './confirm-dialog/confirm-dialog.component';
 import {ConfirmConfig} from './confirm-dialog/_models/confirm-config';
+import {confirmModal} from "../_models/modal/modal-options";
+import {ModalService} from "../_services/modal.service";
+import {from} from "rxjs";
 
 
 @Injectable({
   providedIn: 'root'
 })
 export class ConfirmService {
+  private modalService = inject(ModalService);
+
 
   defaultConfirm = new ConfirmConfig();
   defaultAlert = new ConfirmConfig();
   defaultInfo = new ConfirmConfig();
   defaultPrompt = new ConfirmConfig();
 
-  constructor(private modalService: NgbModal) {
+  constructor() {
     this.defaultConfirm.buttons = [
       {text: 'confirm.cancel', type: 'secondary'},
       {text: 'confirm.confirm', type: 'primary'},
@@ -41,8 +45,11 @@ export class ConfirmService {
     this.defaultPrompt._type = 'prompt';
   }
 
-  public async confirm(content?: string, config?: ConfirmConfig): Promise<boolean> {
+  public confirm$(content?: string, config?: ConfirmConfig) {
+    return from(this.confirm(content, config));
+  }
 
+  public async confirm(content?: string, config?: ConfirmConfig): Promise<boolean> {
     return new Promise((resolve, reject) => {
       if (content === undefined && config === undefined) {
         console.error('Confirm must have either text or a config object passed');
@@ -58,12 +65,12 @@ export class ConfirmService {
         config!.content = content;
       }
 
-      const modalRef = this.modalService.open(ConfirmDialogComponent);
-      modalRef.componentInstance.config = config;
+      const modalRef = this.modalService.open(ConfirmDialogComponent, confirmModal());
+      modalRef.setInput('config', config ?? new ConfirmConfig());
       modalRef.closed.pipe(take(1)).subscribe(result => {
         return resolve(result);
       });
-      modalRef.dismissed.pipe(take(1)).subscribe(() => {
+      modalRef.dismissed.subscribe(() => {
         return resolve(false);
       });
     });
@@ -86,12 +93,12 @@ export class ConfirmService {
         }
       }
 
-      const modalRef = this.modalService.open(ConfirmDialogComponent, {size: "lg", fullscreen: "md"});
-      modalRef.componentInstance.config = config;
+      const modalRef = this.modalService.open(ConfirmDialogComponent, confirmModal());
+      modalRef.setInput('config', config ?? new ConfirmConfig());
       modalRef.closed.pipe(take(1)).subscribe(result => {
         return resolve(result);
       });
-      modalRef.dismissed.pipe(take(1)).subscribe(() => {
+      modalRef.dismissed.subscribe(() => {
         return resolve(false);
       });
     });
@@ -110,12 +117,12 @@ export class ConfirmService {
         config.content = content;
       }
 
-      const modalRef = this.modalService.open(ConfirmDialogComponent, {size: "lg", fullscreen: "md"});
-      modalRef.componentInstance.config = config;
+      const modalRef = this.modalService.open(ConfirmDialogComponent, confirmModal());
+      modalRef.setInput('config', config ?? new ConfirmConfig());
       modalRef.closed.pipe(take(1)).subscribe(result => {
         return resolve(result);
       });
-      modalRef.dismissed.pipe(take(1)).subscribe(() => {
+      modalRef.dismissed.subscribe(() => {
         return resolve(false);
       });
     });
@@ -137,12 +144,12 @@ export class ConfirmService {
         config!.header = title;
       }
 
-      const modalRef = this.modalService.open(ConfirmDialogComponent);
-      modalRef.componentInstance.config = config;
+      const modalRef = this.modalService.open(ConfirmDialogComponent, confirmModal());
+      modalRef.setInput('config', config ?? new ConfirmConfig());
       modalRef.closed.pipe(take(1)).subscribe(result => {
         return resolve(result);
       });
-      modalRef.dismissed.pipe(take(1)).subscribe(() => {
+      modalRef.dismissed.subscribe(() => {
         return resolve('');
       });
     });

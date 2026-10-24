@@ -1,109 +1,68 @@
 import {
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
-  DestroyRef,
+  computed,
   ElementRef,
   inject,
-  Input,
-  OnInit,
-  ViewChild
+  input,
+  model,
+  signal,
+  viewChild
 } from '@angular/core';
-import {ToastrService} from 'ngx-toastr';
-import {ConfirmService} from 'src/app/shared/confirm.service';
-import {AccountService} from 'src/app/_services/account.service';
 import {Clipboard} from '@angular/cdk/clipboard';
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
-import {NgbTooltip} from '@ng-bootstrap/ng-bootstrap';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {SettingItemComponent} from "../../settings/_components/setting-item/setting-item.component";
+import {ToastrService} from '@openng/ngx-toastr';
 
 @Component({
-    selector: 'app-api-key',
-    templateUrl: './api-key.component.html',
-    styleUrls: ['./api-key.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [NgbTooltip, TranslocoDirective, SettingItemComponent]
+  selector: 'app-api-key',
+  templateUrl: './api-key.component.html',
+  styleUrls: ['./api-key.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TranslocoDirective, SettingItemComponent]
 })
-export class ApiKeyComponent implements OnInit {
+export class ApiKeyComponent {
 
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly confirmService = inject(ConfirmService);
-  private readonly accountService = inject(AccountService);
-  private readonly toastr = inject(ToastrService);
   private readonly clipboard = inject(Clipboard);
-  private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly toastr = inject(ToastrService);
 
-  @Input() title: string = 'API Key';
-  @Input() showRefresh: boolean = true;
-  @Input() transform: (val: string) => string = (val: string) => val;
-  @Input() tooltipText: string = '';
-  @Input() hideData = true;
-  @ViewChild('apiKey') inputElem!: ElementRef;
+  title = input.required<string>();
+  key = input.required<string>();
+  tooltipText = input<string | undefined>(undefined);
+  hideData = model(true);
 
-  key: string = '';
-  isDataHidden: boolean = this.hideData;
+  isDataHidden = signal(this.hideData());
 
-  get InputType() {
-    return (this.hideData && this.isDataHidden) ? 'password' : 'text';
-  }
+  value = computed(() => {
+    const hide = this.hideData() && this.isDataHidden();
+    const key = this.key();
+
+    return hide ? '•'.repeat(key.length) : key;
+  })
 
 
-  ngOnInit(): void {
-    this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(user => {
-      let key = '';
-      if (user) {
-        key = user.apiKey;
-      } else {
-        key = translate('api-key.no-key');
-      }
-
-      if (this.showRefresh) {
-        this.showRefresh = !this.accountService.hasReadOnlyRole(user!);
-      }
-
-      if (this.transform != undefined) {
-        this.key = this.transform(key);
-        this.cdRef.markForCheck();
-      }
-    });
-  }
+  readonly inputElem = viewChild.required<ElementRef>('apiKey');
 
   async copy() {
-    this.inputElem.nativeElement.select();
-    this.clipboard.copy(this.inputElem.nativeElement.value);
-    this.inputElem.nativeElement.setSelectionRange(0, 0);
-    this.cdRef.markForCheck();
-  }
-
-  async refresh() {
-    if (!await this.confirmService.confirm(translate('api-key.confirm-reset'))) {
-      return;
-    }
-    this.accountService.resetApiKey().subscribe(newKey => {
-      this.key = newKey;
-      this.cdRef.markForCheck();
-      this.toastr.success(translate('api-key.key-reset'));
-    });
+    this.clipboard.copy(this.key());
+    this.toastr.success(translate('toasts.copied-to-clipboard'));
   }
 
   selectAll() {
-    if (this.inputElem) {
-      this.inputElem.nativeElement.setSelectionRange(0, this.key.length);
-      this.cdRef.markForCheck();
+    const inputElem = this.inputElem();
+    if (inputElem) {
+      inputElem.nativeElement.setSelectionRange(0, this.key().length);
     }
   }
 
   toggleVisibility(forceState: boolean | null = null) {
-    if (!this.hideData) return;
-    
-    if (forceState == null) {
-      this.isDataHidden = !this.isDataHidden;
-    } else {
-      this.isDataHidden = !forceState;
-    }
+    if (!this.hideData()) return;
 
-    this.cdRef.markForCheck();
+    if (forceState == null) {
+      this.isDataHidden.update(x => !x);
+    } else {
+      this.isDataHidden.set(!forceState);
+    }
   }
 
 }

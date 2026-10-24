@@ -1,24 +1,18 @@
-import {Injectable} from '@angular/core';
-import { HttpRequest, HttpHandler, HttpEvent, HttpInterceptor } from '@angular/common/http';
-import {Observable, switchMap} from 'rxjs';
-import { AccountService } from '../_services/account.service';
-import { take } from 'rxjs/operators';
+import {inject} from '@angular/core';
+import {HttpInterceptorFn} from '@angular/common/http';
+import {AccountService} from '../_services/account.service';
 
-@Injectable()
-export class JwtInterceptor implements HttpInterceptor {
+export const jwtInterceptor: HttpInterceptorFn = (req, next) => {
+  const accountService = inject(AccountService);
+  const user = accountService.currentUser();
 
-  constructor(private accountService: AccountService) {}
-
-  intercept(request: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
-    const user = this.accountService.currentUserSignal();
-    if (user && user.token) {
-      request = request.clone({
-        setHeaders: {
-          Authorization: `Bearer ${user.token}`
-        }
-      });
-    }
-
-    return next.handle(request);
+  if (user?.token) {
+    req = req.clone({
+      setHeaders: {
+        Authorization: `Bearer ${user.token}`
+      }
+    });
   }
-}
+
+  return next(req);
+};

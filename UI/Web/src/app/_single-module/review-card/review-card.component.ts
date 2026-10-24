@@ -1,63 +1,47 @@
-import {
-  ChangeDetectionStrategy,
-  ChangeDetectorRef,
-  Component,
-  EventEmitter,
-  inject,
-  Input,
-  OnInit,
-  Output
-} from '@angular/core';
+import {ChangeDetectionStrategy, Component, computed, inject, input, output} from '@angular/core';
 import {NgOptimizedImage} from '@angular/common';
-import {UserReview} from "./user-review";
-import {NgbModal} from "@ng-bootstrap/ng-bootstrap";
+import {UserReview} from "../../_models/user-review";
 import {ReviewCardModalComponent} from "../review-card-modal/review-card-modal.component";
 import {AccountService} from "../../_services/account.service";
 import {ReviewModalCloseEvent, ReviewModalComponent} from "../review-modal/review-modal.component";
 import {ReadMoreComponent} from "../../shared/read-more/read-more.component";
-import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
 import {ProviderImagePipe} from "../../_pipes/provider-image.pipe";
 import {TranslocoDirective} from "@jsverse/transloco";
 import {ScrobbleProvider} from "../../_services/scrobbling.service";
 import {RatingAuthority} from "../../_models/rating";
+import {ProfileIconComponent} from "../profile-icon/profile-icon.component";
+import {RouterLink} from "@angular/router";
+import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
+import {ModalService} from "../../_services/modal.service";
 
 @Component({
   selector: 'app-review-card',
-  imports: [ReadMoreComponent, DefaultValuePipe, NgOptimizedImage, ProviderImagePipe, TranslocoDirective],
+  imports: [ReadMoreComponent, NgOptimizedImage, ProviderImagePipe, TranslocoDirective, ProfileIconComponent, RouterLink, DefaultValuePipe],
   templateUrl: './review-card.component.html',
   styleUrls: ['./review-card.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class ReviewCardComponent implements OnInit {
+export class ReviewCardComponent {
+  private readonly modalService = inject(ModalService);
   private readonly accountService = inject(AccountService);
-  protected readonly ScrobbleProvider = ScrobbleProvider;
 
-  @Input({required: true}) review!: UserReview;
-  @Output() refresh = new EventEmitter<ReviewModalCloseEvent>();
 
-  isMyReview: boolean = false;
+  review = input.required<UserReview>();
+  readonly refresh = output<ReviewModalCloseEvent>();
 
-  constructor(private readonly modalService: NgbModal, private readonly cdRef: ChangeDetectorRef) {}
-
-  ngOnInit() {
-    this.accountService.currentUser$.subscribe(u => {
-      if (u) {
-        this.isMyReview = this.review.username === u.username && !this.review.isExternal;
-        this.cdRef.markForCheck();
-      }
-    });
-  }
+  isMyReview = computed(() =>
+    this.review().username === this.accountService.currentUser()?.username && !this.review().isExternal);
 
   showModal() {
-    let component;
-    if (this.isMyReview) {
-      component = ReviewModalComponent;
+    let ref;
+    if (this.isMyReview()) {
+      ref = this.modalService.open(ReviewModalComponent);
     } else {
-      component = ReviewCardModalComponent;
+      ref = this.modalService.open(ReviewCardModalComponent);
     }
-    const ref = this.modalService.open(component, {size: 'lg', fullscreen: 'md'});
 
-    ref.componentInstance.review = this.review;
+    // @ts-ignore, TS isn't smart enough to merge the inputs and doesn't understand this works
+    ref.setInput('review', this.review());
     ref.closed.subscribe((res: ReviewModalCloseEvent | undefined) => {
       if (res) {
         this.refresh.emit(res);
@@ -66,4 +50,5 @@ export class ReviewCardComponent implements OnInit {
   }
 
   protected readonly RatingAuthority = RatingAuthority;
+  protected readonly ScrobbleProvider = ScrobbleProvider;
 }

@@ -2,7 +2,6 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "baseUrl": "./",
     "outDir": "./dist/out-tsc",
     "removeComments": true,
     "forceConsistentCasingInFileNames": true,
@@ -18,11 +17,7 @@
     "importHelpers": true,
     "target": "ES2022",
     "module": "ES2022",
-    "useDefineForClassFields": false,
-    "lib": [
-      "ES2022",
-      "dom"
-    ]
+    "useDefineForClassFields": false
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
@@ -35,7 +30,8 @@
     "extendedDiagnostics": {
       "nullishCoalescingNotNullable": "warning",
       "checks": {
-        "unusedStandaloneImports": "suppress"
+        "unusedStandaloneImports": "suppress",
+        "uninvokedFunctionInTextInterpolation": "error"
       }
     }
 

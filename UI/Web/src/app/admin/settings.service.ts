@@ -1,13 +1,14 @@
-import { HttpClient } from '@angular/common/http';
-import {computed, Injectable, signal} from '@angular/core';
-import {map, of, tap} from 'rxjs';
-import { environment } from 'src/environments/environment';
-import { TextResonse } from '../_types/text-response';
-import { ServerSettings } from './_models/server-settings';
+import {HttpClient, httpResource} from '@angular/common/http';
+import {inject, Injectable, Signal} from '@angular/core';
+import {map, of} from 'rxjs';
+import {environment} from '../../environments/environment';
+import {TextResonse} from '../_types/text-response';
+import {ServerSettings} from './_models/server-settings';
 import {MetadataSettings} from "./_models/metadata-settings";
 import {MetadataMappingsExport} from "./manage-metadata-mappings/manage-metadata-mappings.component";
 import {FieldMappingsImportResult, ImportSettings} from "../_models/import-field-mappings";
-import {OidcPublicConfig} from "./_models/oidc-config";
+import {AuthorityValidationResult, OidcPublicConfig} from "./_models/oidc-config";
+import {RunMetadataMappingsRequest} from "../_models/metadata/run-metadata-mappings-request";
 
 /**
  * Used only for the Test Email Service call
@@ -22,10 +23,10 @@ export interface EmailTestResult {
   providedIn: 'root'
 })
 export class SettingsService {
+  private http = inject(HttpClient);
+
 
   baseUrl = environment.apiUrl;
-
-  constructor(private http: HttpClient) { }
 
   getServerSettings() {
     return this.http.get<ServerSettings>(this.baseUrl + 'settings');
@@ -40,6 +41,10 @@ export class SettingsService {
   }
   updateMetadataSettings(model: MetadataSettings) {
     return this.http.post<MetadataSettings>(this.baseUrl + 'settings/metadata-settings', model);
+  }
+
+  runMetadataMappings(request: RunMetadataMappingsRequest) {
+    return this.http.post(this.baseUrl + 'settings/run-metadata-mappings', request);
   }
 
   importFieldMappings(data: MetadataMappingsExport, settings: ImportSettings) {
@@ -70,8 +75,8 @@ export class SettingsService {
     return this.http.post<EmailTestResult>(this.baseUrl + 'settings/test-email-url', {});
   }
 
-  isEmailSetup() {
-    return this.http.get<string>(this.baseUrl + 'server/is-email-setup', TextResonse).pipe(map(d => d == "true"));
+  isEmailSetup(forDevice: boolean = false) {
+    return this.http.get<string>(this.baseUrl + 'settings/is-email-setup?forDevice=' + forDevice, TextResonse).pipe(map(d => d == "true"));
   }
 
   getTaskFrequencies() {
@@ -86,8 +91,12 @@ export class SettingsService {
     return this.http.get<string[]>(this.baseUrl + 'settings/library-types');
   }
 
-  getOpdsEnabled() {
-    return this.http.get<string>(this.baseUrl + 'settings/opds-enabled', TextResonse).pipe(map(d => d === 'true'));
+  getOpdsEnabledResource() {
+    return httpResource<boolean>(() => this.baseUrl + 'settings/opds-enabled').asReadonly();
+  }
+
+  clearExternalIds() {
+    return this.http.post(this.baseUrl + 'settings/reset-external-ids', {})
   }
 
   isValidCronExpression(val: string) {
@@ -95,9 +104,16 @@ export class SettingsService {
     return this.http.get<string>(this.baseUrl + 'settings/is-valid-cron?cronExpression=' + val, TextResonse).pipe(map(d => d === 'true'));
   }
 
-  ifValidAuthority(authority: string) {
-    if (authority === '' || authority === undefined || authority === null) return of(false);
-
-    return this.http.post<boolean>(this.baseUrl + 'settings/is-valid-authority', {authority}, TextResonse).pipe(map(r => r + '' == 'true'));
+  validAuthorityRsc(authority: Signal<string | null | undefined>) {
+    return httpResource.text(() => ({
+      url: this.baseUrl + 'settings/is-valid-authority',
+      method: 'POST',
+      body: {
+        authority: authority()
+      },
+    }), {
+      parse: (value) => parseInt(value) as AuthorityValidationResult,
+    }).asReadonly();
   }
+
 }

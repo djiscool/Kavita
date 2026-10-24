@@ -1,5 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
-import {CommonModule} from "@angular/common";
+import {ChangeDetectionStrategy, Component, input} from '@angular/core';
 
 /**
  * What type of cursor to apply to the tag badge
@@ -22,19 +21,21 @@ export enum TagBadgeCursor {
   NotAllowed,
 }
 
+export type TagBadgeColor = 'default' | 'primary' | 'secondary' | 'error';
+
 @Component({
     selector: 'app-tag-badge',
-    imports: [CommonModule],
     templateUrl: './tag-badge.component.html',
     styleUrls: ['./tag-badge.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class TagBadgeComponent {
 
-  @Input() selectionMode: TagBadgeCursor = TagBadgeCursor.Selectable;
-  @Input() fillStyle: 'filled' | 'outline' = 'outline';
+  selectionMode = input<TagBadgeCursor>(TagBadgeCursor.Selectable);
+  fillStyle = input<'filled' | 'outline'>('outline');
+  color = input<TagBadgeColor>('default');
+  size = input<'default' | 'sm'>('default');
+  shape = input<'default' | 'pill'>('default');
 
-  get TagBadgeCursor() {
-    return TagBadgeCursor;
-  }
+  protected readonly TagBadgeCursor = TagBadgeCursor;
 }

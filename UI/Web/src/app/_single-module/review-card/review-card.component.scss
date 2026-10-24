@@ -1,20 +1,20 @@
 .review-card {
-  max-width: 320px;
-  max-height: 130px;
-  height: 130px;
-  width: 320px;
+  max-width: 20rem;
+  max-height: 8.125rem;
+  height: 8.125rem;
+  width: 20rem;
 }
 
 .profile-image {
     font-size: 1.2rem;
-    padding: 20px;
+    padding: 1.25rem;
 }
 
 .my-review {
     position: absolute;
     z-index: 20;
-    top: 38px;
-    left: 38px;
+    top: 2.375rem;
+    left: 2.375rem;
 }
 
 .fa-star {
@@ -22,19 +22,21 @@
 }
 
 .card-text {
-    font-size: 14px;
+    font-size: 0.875rem;
 }
 
 .card-title {
     overflow: hidden;
-    width: 235px;
+    width: 14.6875rem;
     word-break: break-all;
-    height: 20px;
+    height: 1.25rem;
 }
 
 .card-text.no-images {
-    text-overflow: ellipsis;
-    overflow: hidden;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .no-images img {
@@ -42,21 +44,22 @@
 }
 
 .card-footer {
-    font-size: 13px;
+    font-size: 0.8125rem;
     display: flex;
-    max-width: 319px;
+    max-width: 19.9375rem;
     justify-content: space-between;
     margin: 0 auto;
 
     & > * {
-        margin: 0 5px;
+        margin: 0 0.3125rem;
         display: inline-flex;
     }
 }
 
 .card-body {
-    display: block;
-    visibility: visible;
-    min-height: 93.5px;
-    max-height: 93.5px;
+  display: block;
+  visibility: visible;
+  min-height: 5.8438rem;
+  max-height: 5.8438rem;
+  overflow: hidden;
 }

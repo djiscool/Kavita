@@ -1,40 +1,51 @@
 <ng-container *transloco="let t;">
+
+  @let formCtrl = control();
+
   <div>
     <div class="settings-row g-0 row">
-      <div class="col-auto {{fixedExtras ? 'setting-title no-anim edit' : 'setting-title edit'}}">
+      <div class="col-auto {{fixedExtras() ? 'setting-title no-anim edit' : 'setting-title edit'}}">
         <h6 class="section-title">
-          @if (labelId) {
-            <label class="reset-label" [for]="labelId">{{title}}</label>
+          @if (hasControl()) {
+            <label [for]="elementId()">{{title()}}</label>
           } @else {
-            {{title}}
+            {{title()}}
           }
-          @if (titleExtraRef) {
-            <ng-container [ngTemplateOutlet]="titleExtraRef"></ng-container>
+          @if (titleExtraRef()) {
+            <ng-container [ngTemplateOutlet]="titleExtraRef()" />
           }
         </h6>
       </div>
       <div class="col-auto text-end align-self-end justify-content-end">
-        @if (showEdit) {
-        <button type="button" class="btn btn-icon edit-btn btn-sm btn-alignment" (click)="toggleEditMode()" [disabled]="!canEdit">
-          {{isEditMode ? t('common.close') : (editLabel || t('common.edit'))}}
+        @if (showEdit()) {
+        <button type="button" class="btn btn-icon edit-btn btn-sm btn-alignment" (click)="toggleEditMode()" [disabled]="!canEdit()">
+          {{isEditMode() ? t('common.close') : (editLabel() || t('common.edit'))}}
         </button>
         }
-        @if (titleActionsRef) {
-          <ng-container [ngTemplateOutlet]="titleActionsRef"></ng-container>
+        @if (titleActionsRef()) {
+          <ng-container [ngTemplateOutlet]="titleActionsRef()" />
         }
       </div>
     </div>
 
-    @if (isEditMode) {
-      <ng-container [ngTemplateOutlet]="valueEditRef"></ng-container>
+    @if (isEditMode() && valueEditRef()) {
+      <div #editWrapper>
+        <ng-container [ngTemplateOutlet]="valueEditRef()" />
+      </div>
     } @else {
-      <span class="view-value" [ngClass]="{'non-selectable': (!canEdit || !showEdit)}" (click)="toggleEditMode()">
-        <ng-container [ngTemplateOutlet]="valueViewRef"></ng-container>
+      <span class="view-value" #viewWrapper [class.non-selectable]="!canEdit() || !showEdit()" (click)="toggleEditMode()">
+        <ng-container [ngTemplateOutlet]="valueViewRef()" />
       </span>
     }
 
-    @if (subtitle) {
-      <div class="text-muted mt-2" [innerHTML]="subtitle | safeHtml"></div>
+    <!--Some view only setups have inputs, so we need this to always render -->
+    @if (formCtrl) {
+      <app-validation-errors [inputId]="elementId()" [control]="formCtrl" [messages]="validations()" />
+    }
+
+
+    @if (subtitle()) {
+      <div class="text-muted mt-2" [innerHTML]="subtitle()! | safeHtml"></div>
     }
   </div>
 </ng-container>

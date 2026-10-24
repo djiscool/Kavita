@@ -2,273 +2,220 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  EventEmitter,
+  effect,
   inject,
-  Inject,
-  Input,
-  OnInit,
-  Output
+  input,
+  output,
+  signal
 } from '@angular/core';
-import {FormBuilder, FormControl, FormGroup, ReactiveFormsModule} from '@angular/forms';
-import {FileSystemFileEntry, NgxFileDropEntry, NgxFileDropModule} from 'ngx-file-drop';
-import {fromEvent} from 'rxjs';
-import {takeWhile} from 'rxjs/operators';
-import {ToastrService} from 'ngx-toastr';
-import {ImageService} from 'src/app/_services/image.service';
-import {KEY_CODES} from 'src/app/shared/_services/utility.service';
-import {UploadService} from 'src/app/_services/upload.service';
-import {DOCUMENT, NgClass} from '@angular/common';
+import {FileSystemFileEntry, NgxFileDropEntry} from 'ngx-file-drop';
+import {ToastrService} from '@openng/ngx-toastr';
 import {ImageComponent} from "../../shared/image/image.component";
 import {translate, TranslocoModule} from "@jsverse/transloco";
-import {ColorscapeService} from "../../_services/colorscape.service";
+import {NgbNav, NgbNavContent, NgbNavItem, NgbNavLink, NgbNavOutlet} from "@ng-bootstrap/ng-bootstrap";
+import {TabTitlePipe} from "../../_pipes/tab-title.pipe";
+import {Tabs} from "../../_models/tabs";
+import {CoverImageChooserConfig, CoverImageOption} from "../../_services/cover-chooser-config-factory.service";
+import {NgTemplateOutlet} from "@angular/common";
+import {Observable} from "rxjs";
+import {
+  FileDragAndDropUploadComponent
+} from "../../shared/file-drag-and-drop-upload/file-drag-and-drop-upload.component";
+import {ImageService} from "../../_services/image.service";
+import {UploadService} from "../../_services/upload.service";
+
 
 @Component({
-    selector: 'app-cover-image-chooser',
-    imports: [
-        ReactiveFormsModule,
-        NgxFileDropModule,
-        ImageComponent,
-        TranslocoModule,
-        NgClass
-    ],
-    templateUrl: './cover-image-chooser.component.html',
-    styleUrls: ['./cover-image-chooser.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush
+  selector: 'app-cover-image-chooser',
+  imports: [
+    ImageComponent,
+    TranslocoModule,
+    FileDragAndDropUploadComponent,
+    NgbNav,
+    NgbNavItem,
+    NgbNavLink,
+    NgbNavContent,
+    NgbNavOutlet,
+    TabTitlePipe,
+    NgTemplateOutlet
+  ],
+  templateUrl: './cover-image-chooser.component.html',
+  styleUrls: ['./cover-image-chooser.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class CoverImageChooserComponent implements OnInit {
+export class CoverImageChooserComponent  {
 
+  protected readonly imageService = inject(ImageService);
+  private readonly toastr = inject(ToastrService);
+  private readonly uploadService = inject(UploadService);
   private readonly cdRef = inject(ChangeDetectorRef);
-  public readonly imageService = inject(ImageService);
-  public readonly fb = inject(FormBuilder);
-  public readonly toastr = inject(ToastrService);
-  public readonly uploadService = inject(UploadService);
-  private readonly colorscapeService = inject(ColorscapeService)
 
-  /**
-   * If buttons show under images to allow immediate selection of cover images.
-   */
-  @Input() showApplyButton: boolean = false;
-  /**
-   * When a cover image is selected, this will be called with a base url representation of the file.
-   */
-  @Output() applyCover: EventEmitter<string> = new EventEmitter<string>();
-  /**
-   * When a cover image is reset, this will be called.
-   */
-  @Output() resetCover: EventEmitter<void> = new EventEmitter<void>();
+  config = input<CoverImageChooserConfig>({});
 
-  @Input() imageUrls: Array<string> = [];
-  @Output() imageUrlsChange: EventEmitter<Array<string>> = new EventEmitter<Array<string>>();
+  coverChanged = output<{ isDirty: boolean; fileName: string }>();
+  resetClicked = output();
 
-  /**
-   * Should the control give the ability to select an image that emits the reset status for cover image
-   */
-  @Input() showReset: boolean = false;
-  @Output() resetClicked: EventEmitter<void> = new EventEmitter<void>();
+  protected readonly acceptableExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'].join(',');
 
-  /**
-   * Emits the selected index. Used usually to check if something other than the default image was selected.
-   */
-  @Output() imageSelected: EventEmitter<number> = new EventEmitter<number>();
-  /**
-   * Emits a base64 encoded image
-   */
-  @Output() selectedBase64Url: EventEmitter<string> = new EventEmitter<string>();
+  protected readonly volumeImages = signal<CoverImageOption[] | null>(null);
+  protected readonly chapterImages = signal<CoverImageOption[] | null>(null);
+  protected readonly uploadedImages = signal<CoverImageOption[]>([]);
+  protected readonly kavitaplusImages = signal<CoverImageOption[]>([]);
+  protected readonly kavitaplusImagesLoaded = signal(false);
+  protected readonly otherImages = signal<CoverImageOption[]>([]);
+  protected readonly selectedOptionKey = signal<string | null>(null);
+
+  private volumeLoaded = false;
+  private chapterLoaded = false;
+  private kavitaPlusLoaded = false;
+  private otherLoaded = false;
+  private hasInit = false;
+
+  activeTabId = Tabs.Current;
 
 
+  constructor() {
+    effect(() => {
+      // Keep track of the default tab
+      const hasUploadedImages = this.uploadedImages().length > 0;
+      const hasSelected = this.config().selected;
+      const hasVolume = (this.volumeImages() ?? []).length > 0;
+      const hasChapter = (this.chapterImages() ?? []).length > 0;
 
-  selectedIndex: number = 0;
-  /**
-   * Only applies for showApplyButton. Used to track which image is applied.
-   */
-  appliedIndex: number = 0;
-  form!: FormGroup;
-  files: NgxFileDropEntry[] = [];
-  acceptableExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'].join(',');
-  mode: 'file' | 'url' | 'all' = 'all';
+      if (Object.keys(this.config()).length === 0) return;
 
-  constructor(@Inject(DOCUMENT) private document: Document) { }
+      if (this.hasInit) return;
 
-  ngOnInit(): void {
-    this.form = this.fb.group({
-      coverImageUrl: new FormControl('', [])
+      if (hasSelected) {
+        this.activeTabId = Tabs.Current;
+      } else if (hasUploadedImages) {
+        this.activeTabId = Tabs.Uploaded;
+      } else if (hasVolume) {
+        this.activeTabId = Tabs.Volumes;
+      } else if (hasChapter) {
+        this.activeTabId = Tabs.Chapters;
+      } else {
+        this.activeTabId = Tabs.Uploaded;
+      }
+
+      this.hasInit = true;
+      this.cdRef.detectChanges();
     });
-
-    this.cdRef.markForCheck();
   }
 
-  selectImage(index: number, callback?: Function) {
-    if (this.selectedIndex === index) { return; }
 
-    // If we load custom images of series/chapters/covers, then those urls are not properly encoded, so on select we have to clean them up
-    if (!this.imageUrls[index].startsWith('data:image/')) {
-      const imgUrl = this.imageUrls[index];
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      img.src = imgUrl;
-      img.onload = (e) => {
-        this.handleUrlImageAdd(img, index);
-        this.selectedBase64Url.emit(this.imageUrls[this.selectedIndex]);
-        if (callback) callback(index);
-      };
-      img.onerror = (e) => {
-        this.toastr.error(translate('errors.rejected-cover-upload'));
-        this.form.get('coverImageUrl')?.setValue('');
-        this.cdRef.markForCheck();
-      };
-      this.form.get('coverImageUrl')?.setValue('');
-      this.cdRef.markForCheck();
+  selectOption(option: CoverImageOption, sourceTab: Tabs) {
+    this.selectedOptionKey.set(option.url);
+    const isDirty = sourceTab !== Tabs.Current;
+
+    this.activeTabId = sourceTab;
+    this.cdRef.markForCheck();
+
+    if (!isDirty) {
+      // Selecting the existing cover - nothing to stage or upload.
+      this.coverChanged.emit({ isDirty, fileName: '' });
       return;
     }
 
-    this.selectedIndex = index;
-    this.cdRef.markForCheck();
-    this.imageSelected.emit(this.selectedIndex);
-    this.selectedBase64Url.emit(this.imageUrls[this.selectedIndex]);
-  }
+    // Already staged in temp (Uploaded tab) - emit its filename directly.
+    if (option.fileName) {
+      this.coverChanged.emit({ isDirty, fileName: option.fileName });
+      return;
+    }
 
-  applyImage(index: number) {
-    if (!this.showApplyButton) return;
+    let apiCall: Observable<string>;
+    if (option.chapterId) {
+      apiCall = this.uploadService.uploadChapterCover(option.chapterId);
+    } else if (option.volumeId) {
+      apiCall = this.uploadService.uploadVolumeCover(option.volumeId);
+    } else if (option.seriesId) {
+      apiCall = this.uploadService.uploadSeriesCover(option.seriesId);
+    } else {
+      apiCall = this.uploadService.uploadByUrl(option.url);
+    }
 
-    this.selectImage(index, () => {
-      this.applyCover.emit(this.imageUrls[index]);
-      this.appliedIndex = index;
-      this.cdRef.markForCheck();
+    // Remote option (Volumes/Chapters/Kavita+/Other): stage it into temp, then emit the resulting filename.
+    apiCall.subscribe({
+      next: filename => {
+        option.fileName = filename;
+        this.coverChanged.emit({ isDirty, fileName: filename });
+      },
+      error: () => this.toastr.error(translate('errors.rejected-cover-upload'))
     });
   }
 
-  resetImage() {
-    if (this.showApplyButton) {
-      this.resetCover.emit();
+  onTabActivate(tabId: Tabs) {
+    if (tabId === Tabs.Volumes && !this.volumeLoaded && this.config().volumeFunc) {
+      this.volumeLoaded = true;
+      this.config().volumeFunc!.subscribe(items => {this.volumeImages.set(items)});
+    } else if (tabId === Tabs.Chapters && !this.chapterLoaded && this.config().chapterFunc) {
+      this.chapterLoaded = true;
+      this.config().chapterFunc!.subscribe(items => {this.chapterImages.set(items)});
+    } else if (tabId === Tabs.KavitaPlus && !this.kavitaPlusLoaded && this.config().kavitaplusFunc) {
+      this.kavitaPlusLoaded = true;
+      this.config().kavitaplusFunc!.subscribe(items => {
+        this.kavitaplusImages.set(items);
+        this.kavitaplusImagesLoaded.set(true);
+      });
+    } else if (tabId === Tabs.Other && !this.otherLoaded && this.config().otherFunc) {
+      this.otherLoaded = true;
+      this.config().otherFunc!.subscribe(items => {this.otherImages.set(items)});
     }
   }
 
-  loadImage(url?: string) {
-    url = url || this.form.get('coverImageUrl')?.value.trim();
-    if (!url || url === '') return;
-
-    this.uploadService.uploadByUrl(url).subscribe(filename => {
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      img.src = this.imageService.getCoverUploadImage(filename);
-      img.onload = (e) => this.handleUrlImageAdd(img);
-      img.onerror = (e) => {
-        this.toastr.error(translate('errors.rejected-cover-upload'));
-        this.form.get('coverImageUrl')?.setValue('');
-        this.cdRef.markForCheck();
-      };
-      this.form.get('coverImageUrl')?.setValue('');
-      this.cdRef.markForCheck();
-    });
-  }
-
-  loadImageFromUrl(url?: string) {
-    url = url || this.form.get('coverImageUrl')?.value.trim();
-    if (!url || url === '') return;
-
-    this.uploadService.uploadByUrl(url).subscribe(filename => {
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      img.src = this.imageService.getCoverUploadImage(filename);
-      img.onload = (e) => this.handleUrlImageAdd(img);
-      img.onerror = (e) => {
-        this.toastr.error(translate('errors.rejected-cover-upload'));
-        this.form.get('coverImageUrl')?.setValue('');
-        this.cdRef.markForCheck();
-      };
-      this.form.get('coverImageUrl')?.setValue('');
-      this.cdRef.markForCheck();
-    });
-  }
-
-
-
-  changeMode(mode: 'url') {
-    this.mode = mode;
-    this.setupEnterHandler();
-    this.cdRef.markForCheck();
-
-    setTimeout(() => (this.document.querySelector('#load-image') as HTMLInputElement)?.focus(), 10);
+  reset() {
+    const fn = this.config().resetFunc;
+    if (fn) {
+      fn().subscribe(() => {
+        this.resetClicked.emit();
+        this.selectedOptionKey.set(null);
+      });
+    } else {
+      this.resetClicked.emit();
+      this.selectedOptionKey.set(null);
+    }
   }
 
   public dropped(files: NgxFileDropEntry[]) {
-    this.files = files;
     for (const droppedFile of files) {
-
-      // Is it a file?
       if (droppedFile.fileEntry.isFile) {
         const fileEntry = droppedFile.fileEntry as FileSystemFileEntry;
         fileEntry.file((file: File) => {
-          const reader  = new FileReader();
-          reader.onload = (e) => this.handleFileImageAdd(e);
-          reader.readAsDataURL(file);
+          this.uploadService.uploadByFile(file).subscribe({
+            next: filename => this.addStagedImage(filename),
+            error: () => this.toastr.error(translate('errors.rejected-cover-upload'))
+          });
         });
       }
     }
   }
 
-  handleFileImageAdd(e: any) {
-    if (e.target == null) return;
+  loadImage(url: string) {
+    if (!url || url === '') return;
 
-    this.imageUrls.push(e.target.result); // This is base64 already
-    this.imageUrlsChange.emit(this.imageUrls);
-    this.selectedIndex = this.imageUrls.length - 1;
-    this.imageSelected.emit(this.selectedIndex); // Auto select newly uploaded image
-    this.selectedBase64Url.emit(e.target.result);
-    setTimeout(() => {
-      // Add 1 since we are adding a new image
-      (this.document.querySelector('div.clickable[aria-label="Image ' + (this.selectedIndex + 1) + '"]') as HTMLElement).focus();
-    })
-    this.cdRef.markForCheck();
-  }
-
-  handleUrlImageAdd(img: HTMLImageElement, index: number = -1) {
-    const url = this.colorscapeService.getBase64Image(img);
-    if (index >= 0) {
-      this.imageUrls[index] = url;
-    } else {
-      this.imageUrls.push(url);
-    }
-
-    this.imageUrlsChange.emit(this.imageUrls);
-    this.cdRef.markForCheck();
-
-    setTimeout(() => {
-      // Auto select newly uploaded image and tell parent of new base64 url
-      this.selectImage(index >= 0 ? index : this.imageUrls.length - 1);
+    this.uploadService.uploadByUrl(url).subscribe({
+      next: filename => this.addStagedImage(filename),
+      error: () => this.toastr.error(translate('errors.rejected-cover-upload'))
     });
   }
 
-  reset() {
-    this.resetClicked.emit();
-    this.selectedIndex = -1;
+  /**
+   * Adds an image that has already been staged in the temp directory to the Uploaded tab and selects it.
+   */
+  private addStagedImage(filename: string) {
+    const option: CoverImageOption = {
+      url: this.imageService.getCoverUploadImage(filename),
+      title: '',
+      fileName: filename
+    };
+    this.uploadedImages.update(imgs => [...imgs, option]);
+    this.selectOption(option, Tabs.Uploaded);
   }
 
-  setupEnterHandler() {
-    setTimeout(() => {
-      const elem = document.querySelector('input[id="load-image"]');
-      if (elem == null) return;
-      fromEvent(elem, 'keydown')
-        .pipe(takeWhile(() => this.mode === 'url')).subscribe((event) => {
-          const evt = <KeyboardEvent>event;
-          switch(evt.key) {
-            case KEY_CODES.ENTER:
-            {
-              this.loadImage();
-              break;
-            }
-
-            case KEY_CODES.ESC_KEY:
-              this.mode = 'all';
-              event.stopPropagation();
-              break;
-            default:
-              break;
-          }
-        });
-    });
+  addImage(option: CoverImageOption) {
+    this.uploadedImages.update(imgs => [...imgs, option]);
+    this.selectOption(option, Tabs.Uploaded);
   }
 
-  protected fileOver(event: any){}
-  protected fileLeave(event: any){}
+  protected readonly Tabs = Tabs;
 }

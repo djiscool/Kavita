@@ -1,15 +1,8 @@
 import {HttpParams} from '@angular/common/http';
-import {Inject, Injectable, signal, Signal} from '@angular/core';
-import {Chapter} from 'src/app/_models/chapter';
-import {LibraryType} from 'src/app/_models/library/library';
-import {MangaFormat} from 'src/app/_models/manga-format';
-import {PaginatedResult} from 'src/app/_models/pagination';
-import {Series} from 'src/app/_models/series';
-import {Volume} from 'src/app/_models/volume';
-import {translate} from "@jsverse/transloco";
-import {debounceTime, ReplaySubject, shareReplay} from "rxjs";
-import {DOCUMENT} from "@angular/common";
-import getComputedStyle from "@popperjs/core/lib/dom-utils/getComputedStyle";
+import {Injectable} from '@angular/core';
+import {ActionItem} from "../../_models/actionables/action-item";
+import {AbstractControl, FormArray, FormGroup, ValidationErrors} from "@angular/forms";
+import {PaginatedResult} from "../../_models/pagination";
 
 export enum KEY_CODES {
   RIGHT_ARROW = 'ArrowRight',
@@ -17,6 +10,7 @@ export enum KEY_CODES {
   DOWN_ARROW = 'ArrowDown',
   UP_ARROW = 'ArrowUp',
   ESC_KEY = 'Escape',
+  TAB = 'Tab',
   SPACE = ' ',
   ENTER = 'Enter',
   G = 'g',
@@ -26,38 +20,74 @@ export enum KEY_CODES {
   K = 'k',
   BACKSPACE = 'Backspace',
   DELETE = 'Delete',
-  SHIFT = 'Shift'
+  SHIFT = 'Shift',
+  CONTROL = 'Control',
+  META = 'Meta',
+  ALT = 'Alt',
+}
+
+export interface FormErrorEntry {
+  path: string;
+  level: 'group' | 'array' | 'control';
+  errors: ValidationErrors;
 }
 
 /**
- * Use {@link UserBreakpoint} and {@link UtilityService.activeUserBreakpoint} for breakpoint that should depend on user settings
+ * Recursively walks an AbstractControl tree and collects all errors.
+ * Captures errors at group/array level (cross-field validators) AND control level.
  */
-export enum Breakpoint {
-  Mobile = 768,
-  Tablet = 1280,
-  Desktop = 1440
+export function collectFormErrors(
+  control: AbstractControl,
+  path: string = ''
+): FormErrorEntry[] {
+  const results: FormErrorEntry[] = [];
+
+  // Capture errors at the current node (works for groups, arrays, and controls)
+  if (control.errors) {
+    const level: FormErrorEntry['level'] =
+      control instanceof FormGroup ? 'group'
+        : control instanceof FormArray ? 'array'
+          : 'control';
+
+    results.push({
+      path: path || '(root)',
+      level,
+      errors: control.errors,
+    });
+  }
+
+  // Recurse into children
+  if (control instanceof FormGroup) {
+    for (const key of Object.keys(control.controls)) {
+      const childPath = path ? `${path}.${key}` : key;
+      results.push(...collectFormErrors(control.controls[key], childPath));
+    }
+  } else if (control instanceof FormArray) {
+    control.controls.forEach((child, i) => {
+      const childPath = `${path}[${i}]`;
+      results.push(...collectFormErrors(child, childPath));
+    });
+  }
+
+  return results;
 }
 
-/*
-Breakpoints, but they're derived from css vars in the theme
+/**
+ * Prints all errors to the console in a readable format.
  */
-export enum UserBreakpoint {
-  /**
-   * This is to be used in the UI/as value to disable the functionality with breakpoint, will not actually be set as a breakpoint
-   */
-  Never = 0,
-  /**
-   * --mobile-breakpoint
-   */
-  Mobile = 1,
-  /**
-   * --tablet-breakpoint
-   */
-  Tablet = 2,
-  /**
-   * --desktop-breakpoint, does not actually matter as everything that's not mobile or tablet will be desktop
-   */
-  Desktop = 3,
+export function printFormErrors(control: AbstractControl, label = 'Form'): void {
+  const entries = collectFormErrors(control);
+
+  if (entries.length === 0) {
+    console.log(`[${label}] No errors`);
+    return;
+  }
+
+  console.group(`[${label}] ${entries.length} error entr${entries.length === 1 ? 'y' : 'ies'}`);
+  for (const { path, level, errors } of entries) {
+    console.log(`(${level}) ${path}:`, errors);
+  }
+  console.groupEnd();
 }
 
 
@@ -65,63 +95,6 @@ export enum UserBreakpoint {
   providedIn: 'root'
 })
 export class UtilityService {
-
-  public readonly activeBreakpointSource = new ReplaySubject<Breakpoint>(1);
-  public readonly activeBreakpoint$ = this.activeBreakpointSource.asObservable().pipe(debounceTime(60), shareReplay({bufferSize: 1, refCount: true}));
-
-  /**
-   * The currently active breakpoint, is {@link UserBreakpoint.Never} until the app has loaded
-   */
-  public readonly activeUserBreakpoint = signal<UserBreakpoint>(UserBreakpoint.Never);
-
-  // TODO: I need an isPhone/Tablet so that I can easily trigger different views
-
-
-  mangaFormatKeys: string[] = [];
-
-  constructor(@Inject(DOCUMENT) private document: Document) {
-  }
-
-
-  sortChapters = (a: Chapter, b: Chapter) => {
-    return a.minNumber - b.minNumber;
-  }
-
-  mangaFormatToText(format: MangaFormat): string {
-    if (this.mangaFormatKeys === undefined || this.mangaFormatKeys.length === 0) {
-      this.mangaFormatKeys = Object.keys(MangaFormat);
-    }
-
-    return this.mangaFormatKeys.filter(item => MangaFormat[format] === item)[0];
-  }
-
-  /**
-   * Formats a Chapter name based on the library it's in
-   * @param libraryType
-   * @param includeHash For comics only, includes a # which is used for numbering on cards
-   * @param includeSpace Add a space at the end of the string. if includeHash and includeSpace are true, only hash will be at the end.
-   * @param plural Pluralize word
-   * @returns
-   */
-   formatChapterName(libraryType: LibraryType, includeHash: boolean = false, includeSpace: boolean = false, plural: boolean = false) {
-    const extra = plural ? 's' : '';
-
-     switch(libraryType) {
-      case LibraryType.Book:
-      case LibraryType.LightNovel:
-        return translate('common.book-num' + extra) + (includeSpace ? ' ' : '');
-      case LibraryType.Comic:
-      case LibraryType.ComicVine:
-        if (includeHash) {
-          return translate('common.issue-hash-num');
-        }
-        return translate('common.issue-num' + extra) + (includeSpace ? ' ' : '');
-      case LibraryType.Images:
-      case LibraryType.Manga:
-        return translate('common.chapter-num' + extra) + (includeSpace ? ' ' : '');
-    }
-  }
-
 
   filter(input: string, filter: string): boolean {
     if (input === null || filter === null || input === undefined || filter === undefined) return false;
@@ -135,64 +108,24 @@ export class UtilityService {
     return input.toUpperCase().replace(reg, '') === filter.toUpperCase().replace(reg, '');
   }
 
-  isVolume(d: any) {
+  isVolume(d: unknown) {
     return d != null && d.hasOwnProperty('chapters');
   }
 
-  isChapter(d: any) {
+  isChapter(d: unknown) {
     return d != null && d.hasOwnProperty('volumeId');
   }
 
-  isSeries(d: any) {
+  isSeries(d: unknown) {
     return d != null && d.hasOwnProperty('originalName');
   }
 
-  asVolume(d: any) {
-    return <Volume>d;
+  isReadingList(d: unknown) {
+    return d != null && d.hasOwnProperty('title') && d.hasOwnProperty('startingYear');
   }
 
-  asChapter(d: any) {
-    return <Chapter>d;
-  }
-
-  asSeries(d: any) {
-    return <Series>d;
-  }
-
-  getActiveBreakpoint(): Breakpoint {
-    if (window.innerWidth <= Breakpoint.Mobile) return Breakpoint.Mobile;
-    else if (window.innerWidth > Breakpoint.Mobile && window.innerWidth <= Breakpoint.Tablet) return Breakpoint.Tablet;
-    else if (window.innerWidth > Breakpoint.Tablet) return Breakpoint.Desktop
-
-    return Breakpoint.Desktop;
-  }
-
-  updateUserBreakpoint(): void {
-     this.activeUserBreakpoint.set(this.getActiveUserBreakpoint());
-  }
-
-  private getActiveUserBreakpoint(): UserBreakpoint {
-     const style = getComputedStyle(this.document.body)
-     const mobileBreakPoint = this.parseOrDefault<number>(style.getPropertyValue('--setting-mobile-breakpoint'), Breakpoint.Mobile);
-     const tabletBreakPoint = this.parseOrDefault<number>(style.getPropertyValue('--setting-tablet-breakpoint'), Breakpoint.Tablet);
-     //const desktopBreakPoint = this.parseOrDefault<number>(style.getPropertyValue('--setting-desktop-breakpoint'), Breakpoint.Desktop);
-
-     if (window.innerWidth <= mobileBreakPoint) {
-       return UserBreakpoint.Mobile;
-     } else if (window.innerWidth <= tabletBreakPoint) {
-       return UserBreakpoint.Tablet;
-     }
-
-     // Fallback to desktop
-     return UserBreakpoint.Desktop;
-  }
-
-  private parseOrDefault<T>(s: string, def: T): T {
-     const ret = parseInt(s, 10);
-     if (isNaN(ret)) {
-       return def;
-     }
-     return ret as T;
+  isUserCollection(d: unknown) {
+    return d != null && d.hasOwnProperty('title') && d.hasOwnProperty('itemCount') && !d.hasOwnProperty('startingYear');
   }
 
   isInViewport(element: Element, additionalTopOffset: number = 0) {
@@ -243,9 +176,9 @@ export class UtilityService {
     return params;
   }
 
-  createPaginatedResult(response: any, paginatedVariable: PaginatedResult<any[]> | undefined = undefined) {
+  createPaginatedResult<T>(response: any, paginatedVariable: PaginatedResult<T[]> | undefined = undefined) {
     if (paginatedVariable === undefined) {
-      paginatedVariable = new PaginatedResult();
+      paginatedVariable = new PaginatedResult<T[]>();
     }
     if (response.body === null) {
       paginatedVariable.result = [];
@@ -261,13 +194,10 @@ export class UtilityService {
     return paginatedVariable;
   }
 
-  getWindowDimensions() {
-    const windowWidth = window.innerWidth
-                  || document.documentElement.clientWidth
-                  || document.body.clientWidth;
-    const windowHeight = window.innerHeight
-                  || document.documentElement.clientHeight
-                  || document.body.clientHeight;
-    return [windowWidth, windowHeight];
+  copyActionItem(item: ActionItem<any>): ActionItem<any> {
+    return {
+      ...item,
+      children: item.children.map(child => this.copyActionItem(child))
+    }
   }
 }

@@ -1,12 +1,15 @@
-import {NgClass, NgStyle, NgTemplateOutlet, TitleCasePipe} from '@angular/common';
-import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, Input, OnInit, Signal} from '@angular/core';
+import {NgClass, NgStyle, NgTemplateOutlet, PercentPipe} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  input,
+  Input,
+  OnInit,
+  Signal
+} from '@angular/core';
 import {ReactiveFormsModule} from '@angular/forms';
-import {BookPageLayoutMode} from 'src/app/_models/readers/book-page-layout-mode';
-import {BookTheme} from 'src/app/_models/preferences/book-theme';
-import {ReadingDirection} from 'src/app/_models/preferences/reading-direction';
-import {WritingStyle} from 'src/app/_models/preferences/writing-style';
-import {ThemeProvider} from 'src/app/_models/preferences/site-theme';
-import {FontFamily} from '../../_services/book.service';
 import {BookBlackTheme} from '../../_models/book-black-theme';
 import {BookDarkTheme} from '../../_models/book-dark-theme';
 import {BookWhiteTheme} from '../../_models/book-white-theme';
@@ -22,8 +25,15 @@ import {
 } from '@ng-bootstrap/ng-bootstrap';
 import {TranslocoDirective} from "@jsverse/transloco";
 import {ReadingProfile, ReadingProfileKind} from "../../../_models/preferences/reading-profiles";
-import {BookReadingProfileFormGroup, EpubReaderSettingsService} from "../../../_services/epub-reader-settings.service";
-import {LayoutMode} from "../../../manga-reader/_models/layout-mode";
+import {BookReadingProfileFormModel, EpubReaderSettingsService} from "../../../_services/epub-reader-settings.service";
+import {EpubFont, FontProvider} from "../../../_models/preferences/epub-font";
+import {EpubFontTitlePipe} from "../../../_pipes/epub-font-title.pipe";
+import {ThemeProvider} from "../../../_models/preferences/site-theme";
+import {BookTheme} from "../../../_models/preferences/book-theme";
+import {ReadingDirection} from "../../../_models/preferences/reading-direction";
+import {WritingStyle} from "../../../_models/preferences/writing-style";
+import {BookPageLayoutMode} from "../../../_models/readers/book-page-layout-mode";
+import {FieldTree, FormField} from "@angular/forms/signals";
 
 /**
  * Used for book reader. Do not use for other components
@@ -84,32 +94,28 @@ export const bookColorThemes = [
     templateUrl: './reader-settings.component.html',
     styleUrls: ['./reader-settings.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [ReactiveFormsModule, NgbAccordionDirective, NgbAccordionItem, NgbAccordionHeader, NgbAccordionButton,
-      NgbAccordionCollapse, NgbAccordionBody, NgbTooltip, NgTemplateOutlet, NgClass, NgStyle,
-      TitleCasePipe, TranslocoDirective]
+  imports: [ReactiveFormsModule, NgbAccordionDirective, NgbAccordionItem, NgbAccordionHeader, NgbAccordionButton,
+    NgbAccordionCollapse, NgbAccordionBody, NgbTooltip, NgTemplateOutlet, NgClass, NgStyle,
+    TranslocoDirective, EpubFontTitlePipe, PercentPipe, FormField]
 })
 export class ReaderSettingsComponent implements OnInit {
 
   private readonly cdRef = inject(ChangeDetectorRef);
 
-  @Input({required:true}) seriesId!: number;
-  @Input({required:true}) readingProfile!: ReadingProfile;
-  @Input({required:true}) readerSettingsService!: EpubReaderSettingsService;
+  libraryId = input.required<number>();
+  seriesId = input.required<number>();
+  readingProfile = input.required<ReadingProfile>();
+  readerSettingsService = input.required<EpubReaderSettingsService>();
 
-  /**
-   * List of all font families user can select from
-   */
-  fontOptions: Array<string> = [];
-  fontFamilies: Array<FontFamily> = [];
-  settingsForm!: BookReadingProfileFormGroup;
+  settingsForm!: FieldTree<BookReadingProfileFormModel>;
   /**
    * System provided themes
    */
   themes: Array<BookTheme> = [];
 
   protected pageStyles!: Signal<PageStyle>;
-  protected readingDirectionModel!: Signal<ReadingDirection>;
-  protected writingStyleModel!: Signal<WritingStyle>;
+  protected readingDirection!: Signal<ReadingDirection>;
+  protected writingStyle!: Signal<WritingStyle>;
   protected activeTheme!: Signal<BookTheme | undefined>;
   protected layoutMode!: Signal<BookPageLayoutMode>;
   protected immersiveMode!: Signal<boolean>;
@@ -119,64 +125,60 @@ export class ReaderSettingsComponent implements OnInit {
   protected hasParentProfile!: Signal<boolean>;
   protected parentReadingProfile!: Signal<ReadingProfile | null>;
   protected currentReadingProfile!: Signal<ReadingProfile | null>;
-
+  protected epubFonts!: Signal<EpubFont[]>;
 
   async ngOnInit() {
-    this.pageStyles = this.readerSettingsService.pageStyles;
-    this.readingDirectionModel = this.readerSettingsService.readingDirection;
-    this.writingStyleModel = this.readerSettingsService.writingStyle;
-    this.activeTheme = this.readerSettingsService.activeTheme;
-    this.layoutMode = this.readerSettingsService.layoutMode;
-    this.immersiveMode = this.readerSettingsService.immersiveMode;
-    this.clickToPaginate = this.readerSettingsService.clickToPaginate;
-    this.isFullscreen = this.readerSettingsService.isFullscreen;
-    this.canPromoteProfile = this.readerSettingsService.canPromoteProfile;
-    this.hasParentProfile = this.readerSettingsService.hasParentProfile;
-    this.parentReadingProfile = this.readerSettingsService.parentReadingProfile;
-    this.currentReadingProfile = this.readerSettingsService.currentReadingProfile;
+    this.pageStyles = this.readerSettingsService().pageStyles;
+    this.readingDirection = this.readerSettingsService().readingDirection;
+    this.writingStyle = this.readerSettingsService().writingStyle;
+    this.activeTheme = this.readerSettingsService().activeTheme;
+    this.layoutMode = this.readerSettingsService().layoutMode;
+    this.immersiveMode = this.readerSettingsService().immersiveMode;
+    this.clickToPaginate = this.readerSettingsService().clickToPaginate;
+    this.isFullscreen = this.readerSettingsService().isFullscreen;
+    this.canPromoteProfile = this.readerSettingsService().canPromoteProfile;
+    this.hasParentProfile = this.readerSettingsService().hasParentProfile;
+    this.parentReadingProfile = this.readerSettingsService().parentReadingProfile;
+    this.currentReadingProfile = this.readerSettingsService().currentReadingProfile;
+    this.epubFonts = this.readerSettingsService().epubFonts;
 
-    this.themes = this.readerSettingsService.getThemes();
-
+    this.themes = this.readerSettingsService().getThemes();
 
     // Initialize the service if not already done
-    if (!this.readerSettingsService.getCurrentReadingProfile()) {
-      await this.readerSettingsService.initialize(this.seriesId, this.readingProfile);
+    if (!this.readerSettingsService().getCurrentReadingProfile()) {
+      await this.readerSettingsService().initialize(this.libraryId(), this.seriesId(), this.readingProfile());
     }
 
-    this.settingsForm = this.readerSettingsService.getSettingsForm();
-    this.fontFamilies = this.readerSettingsService.getFontFamilies();
-    this.fontOptions = this.fontFamilies.map(f => f.title);
-    this.cdRef.markForCheck();
+    this.settingsForm = this.readerSettingsService().getSettingsForm();
   }
 
   resetSettings() {
-    this.readerSettingsService.resetSettings();
+    this.readerSettingsService().resetSettings();
   }
 
   setTheme(themeName: string, update: boolean = true) {
-    this.readerSettingsService.setTheme(themeName, update);
+    this.readerSettingsService().setTheme(themeName, update);
   }
 
   toggleReadingDirection() {
-    this.readerSettingsService.toggleReadingDirection();
+    this.readerSettingsService().toggleReadingDirection();
   }
 
   toggleWritingStyle() {
-    this.readerSettingsService.toggleWritingStyle();
+    this.readerSettingsService().toggleWritingStyle();
   }
 
   toggleFullscreen() {
-    this.readerSettingsService.toggleFullscreen();
-    this.cdRef.markForCheck();
+    this.readerSettingsService().toggleFullscreen();
   }
 
   // menu only code
   updateParentPref() {
-    this.readerSettingsService.updateParentProfile();
+    this.readerSettingsService().updateParentProfile();
   }
 
   createNewProfileFromImplicit() {
-    this.readerSettingsService.createNewProfileFromImplicit();
+    this.readerSettingsService().createNewProfileFromImplicit();
   }
 
 
@@ -184,4 +186,5 @@ export class ReaderSettingsComponent implements OnInit {
   protected readonly WritingStyle = WritingStyle;
   protected readonly ReadingDirection = ReadingDirection;
   protected readonly BookPageLayoutMode = BookPageLayoutMode;
+  protected readonly FontProvider = FontProvider;
 }

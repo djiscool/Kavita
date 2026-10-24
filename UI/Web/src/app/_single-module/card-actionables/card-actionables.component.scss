@@ -9,8 +9,8 @@
     content: '';
     position: absolute;
     top: 0;
-    right: -10px;
-    width: 10px;
+    right: -0.625rem;
+    width: 0.625rem;
     height: 100%;
     background: transparent;
     cursor: pointer;
@@ -28,12 +28,12 @@
     color: var(--dropdown-item-text-color);
     background-color: var(--dropdown-item-bg-color);
     &:hover {
-        color: var(--dropdown-item-text-color);
+        color: var(--dropdown-item-hover-text-color);
         background-color: var(--dropdown-item-hover-bg-color);
         cursor: pointer;
     }
     &:focus-visible {
-        color: var(--dropdown-item-text-color);
+        color: var(--dropdown-item-hover-text-color);
         background-color: var(--dropdown-item-hover-bg-color);
     }
 }
@@ -43,6 +43,6 @@
     padding: var(--bs-dropdown-item-padding-y) 0;
 }
 
-.btn {
-    padding: 5px;
+:host .dropdown-toggle.btn:disabled {
+  border: none;
 }

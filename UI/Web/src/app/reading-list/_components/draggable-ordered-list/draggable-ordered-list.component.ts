@@ -1,23 +1,20 @@
 import {CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray} from '@angular/cdk/drag-drop';
 import {
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
-  ContentChild,
-  DestroyRef,
-  EventEmitter,
+  computed,
+  contentChild,
   inject,
-  Input,
-  Output,
+  input,
+  linkedSignal,
+  output,
   TemplateRef,
   TrackByFunction
 } from '@angular/core';
-import {VirtualScrollerModule} from '@iharbeck/ngx-virtual-scroller';
+import {VirtualScrollerComponent} from '@kareadita/ngx-virtual-scroller';
 import {NgClass, NgTemplateOutlet} from '@angular/common';
 import {TranslocoDirective} from "@jsverse/transloco";
-import {BulkSelectionService} from "../../../cards/bulk-selection.service";
-import {FormsModule} from "@angular/forms";
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {BulkSelectionEntityDataSource, BulkSelectionService} from "../../../cards/bulk-selection.service";
 
 export interface IndexUpdateEvent {
   fromPosition: number;
@@ -36,88 +33,92 @@ export interface ItemRemoveEvent {
   templateUrl: './draggable-ordered-list.component.html',
   styleUrls: ['./draggable-ordered-list.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [VirtualScrollerModule, NgTemplateOutlet, CdkDropList, CdkDrag,
-    CdkDragHandle, TranslocoDirective, NgClass, FormsModule]
+  imports: [VirtualScrollerComponent, NgTemplateOutlet, CdkDropList, CdkDrag,
+    CdkDragHandle, TranslocoDirective, NgClass]
 })
 export class DraggableOrderedListComponent {
 
   protected readonly bulkSelectionService = inject(BulkSelectionService);
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly cdRef = inject(ChangeDetectorRef);
 
-
+  readonly bulkDataSource = input<BulkSelectionEntityDataSource>('sideNavStream');
+  readonly items = input<Array<any>>([]);
   /**
-   * After this many elements, drag and drop is disabled and we use a virtualized list instead
+   * Optional filter function applied to items before rendering. Useful for search/filter UIs.
    */
-  @Input() virtualizeAfter = 100;
-  @Input() accessibilityMode: boolean = false;
+  filterFn = input<((item: any) => boolean) | null>(null);
+  protected readonly localItems = linkedSignal(() => [...this.items()]);
+  protected readonly filteredItems = computed(() => {
+    const fn = this.filterFn();
+    const all = this.localItems();
+    return fn ? all.filter(fn) : all;
+  });
+  /**
+   * After this many elements, drag and drop is disabled, and we use a virtualized list instead
+   */
+  virtualizeAfter = input(100);
+  accessibilityMode = input(false);
   /**
    * Shows the remove button on the list item
    */
-  @Input() showRemoveButton: boolean = true;
-  @Input() items: Array<any> = [];
+  showRemoveButton = input(true);
   /**
    * Parent scroll for virtualize pagination
    */
-  @Input() parentScroll!: Element | Window;
+  parentScroll = input<Element | Window>();
   /**
    * Disables drag and drop functionality. Useful if a filter is present which will skew actual index.
    */
-  @Input() disabled: boolean = false;
+  disabled = input(false);
   /**
    * Disables remove button
    */
-  @Input() disableRemove: boolean = false;
+  disableRemove = input(false);
   /**
    * When enabled, draggability is disabled and a checkbox renders instead of order box or drag handle
    */
-  @Input() bulkMode: boolean = false;
-  @Input() trackByIdentity: TrackByFunction<any> = (index: number, item: any) => `${item.id}_${item.order}_${item.title}`;
+  bulkMode = input(false);
+  trackByIdentity = input<TrackByFunction<any>>((index: number, item: any) => `${item.id}_${item.order}_${item.title}`);
+
   /**
    * After an item is re-ordered, you MUST reload from backend the new data. This is because accessibility mode will use item.order which needs to be in sync.
    */
-  @Output() orderUpdated: EventEmitter<IndexUpdateEvent> = new EventEmitter<IndexUpdateEvent>();
-  @Output() itemRemove: EventEmitter<ItemRemoveEvent> = new EventEmitter<ItemRemoveEvent>();
-  @ContentChild('draggableItem') itemTemplate!: TemplateRef<any>;
+  orderUpdated = output<IndexUpdateEvent>();
+  itemRemove = output<ItemRemoveEvent>();
 
+  itemTemplate = contentChild.required<TemplateRef<any>>('draggableItem');
 
-  get BufferAmount() {
-    return Math.floor(Math.min(this.items.length / 20, 20));
-  }
-
-  constructor() {
-    this.bulkSelectionService.selections$.pipe(
-        takeUntilDestroyed(this.destroyRef)
-    ).subscribe((s) => {
-      this.cdRef.markForCheck()
-    });
-  }
+  protected readonly bufferAmount = computed(() => Math.floor(Math.min(this.filteredItems().length / 20, 20)));
+  protected readonly selectionSignal = this.bulkSelectionService.selectionSignal;
 
   drop(event: CdkDragDrop<string[]>) {
     if (event.previousIndex === event.currentIndex) return;
-    moveItemInArray(this.items, event.previousIndex, event.currentIndex);
+    this.localItems.update(arr => {
+      moveItemInArray(arr, event.previousIndex, event.currentIndex);
+      return [...arr];
+    });
     this.orderUpdated.emit({
       fromPosition: event.previousIndex,
       toPosition: event.currentIndex,
       item: event.item.data,
       fromAccessibilityMode: false
     });
-    this.cdRef.markForCheck();
   }
 
   updateIndex(previousIndex: number, item: any) {
-    // get the new value of the input
-    const inputElem = <HTMLInputElement>document.querySelector('#reorder-' + previousIndex);
+    const inputElem = document.querySelector<HTMLInputElement>('#reorder-' + previousIndex);
+    if (!inputElem) return;
     const newIndex = parseInt(inputElem.value, 10);
     if (item.order === newIndex) return;
-    moveItemInArray(this.items, item.order, newIndex);
+    this.localItems.update(arr => {
+      moveItemInArray(arr, item.order, newIndex);
+      return [...arr];
+    });
     this.orderUpdated.emit({
       fromPosition: item.order,
       toPosition: newIndex,
-      item: item,
+      item,
       fromAccessibilityMode: true
     });
-    this.cdRef.markForCheck();
   }
 
   removeItem(item: any, position: number) {
@@ -125,13 +126,15 @@ export class DraggableOrderedListComponent {
       position: item!.order,
       item
     });
-    this.cdRef.markForCheck();
   }
 
   selectItem(updatedVal: Event, index: number) {
-    const boolVal = (updatedVal.target as HTMLInputElement).value == 'true';
+    const checked = (updatedVal.target as HTMLInputElement).checked;
+    this.bulkSelectionService.handleCardSelection(this.bulkDataSource(), index, this.localItems().length, !checked);
+  }
 
-    this.bulkSelectionService.handleCardSelection('sideNavStream', index, this.items.length, boolVal);
-    this.cdRef.markForCheck();
+  protected isItemSelected(index: number) {
+    this.selectionSignal(); // Ensure we re-render when a deselect occurs elsewhere
+    return this.bulkSelectionService.isCardSelected(this.bulkDataSource(), index);
   }
 }

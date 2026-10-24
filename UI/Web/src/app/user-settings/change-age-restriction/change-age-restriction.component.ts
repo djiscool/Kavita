@@ -1,99 +1,64 @@
-import {
-  ChangeDetectionStrategy,
-  ChangeDetectorRef,
-  Component,
-  DestroyRef,
-  EventEmitter,
-  inject,
-  OnInit
-} from '@angular/core';
-import {ToastrService} from 'ngx-toastr';
-import {map, Observable, of, shareReplay, take} from 'rxjs';
-import {AgeRestriction} from 'src/app/_models/metadata/age-restriction';
-import {AgeRating} from 'src/app/_models/metadata/age-rating';
-import {User} from 'src/app/_models/user';
-import {AccountService} from 'src/app/_services/account.service';
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {ChangeDetectionStrategy, Component, effect, inject, signal} from '@angular/core';
+import {ToastrService} from '@openng/ngx-toastr';
 import {AgeRatingPipe} from '../../_pipes/age-rating.pipe';
 import {RestrictionSelectorComponent} from '../restriction-selector/restriction-selector.component';
 import {NgClass} from '@angular/common';
 import {translate, TranslocoDirective} from "@jsverse/transloco";
-import {ReactiveFormsModule} from "@angular/forms";
 import {SettingItemComponent} from "../../settings/_components/setting-item/setting-item.component";
+import {AccountService} from "../../_services/account.service";
+import {AgeRestriction} from "../../_models/metadata/age-restriction";
+import {AgeRating} from "../../_models/metadata/age-rating";
 
 @Component({
     selector: 'app-change-age-restriction',
     templateUrl: './change-age-restriction.component.html',
     styleUrls: ['./change-age-restriction.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [RestrictionSelectorComponent, AgeRatingPipe, TranslocoDirective,
-        ReactiveFormsModule, SettingItemComponent, NgClass]
+    imports: [RestrictionSelectorComponent, AgeRatingPipe, TranslocoDirective, SettingItemComponent, NgClass]
 })
-export class ChangeAgeRestrictionComponent implements OnInit {
+export class ChangeAgeRestrictionComponent {
 
   protected readonly accountService = inject(AccountService);
   private readonly toastr = inject(ToastrService);
-  private readonly cdRef = inject(ChangeDetectorRef);
-  private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly AgeRating = AgeRating;
-
-  user: User | undefined = undefined;
-  hasChangeAgeRestrictionAbility: Observable<boolean> = of(false);
-  isViewMode: boolean = true;
   selectedRestriction!: AgeRestriction;
   originalRestriction!: AgeRestriction;
-  reset: EventEmitter<AgeRestriction> = new EventEmitter();
+  resetValue = signal<AgeRestriction | undefined>(undefined);
+  canEdit = this.accountService.hasChangeAgeRestrictionRole;
 
-
-  ngOnInit(): void {
-    this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef), shareReplay(), take(1)).subscribe(user => {
+  constructor() {
+    effect(() => {
+      const user = this.accountService.currentUser();
       if (!user) return;
-      this.user = user;
-      this.originalRestriction = this.user.ageRestriction;
-      this.cdRef.markForCheck();
+      this.originalRestriction = user.ageRestriction;
     });
-
-    this.hasChangeAgeRestrictionAbility = this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef), shareReplay(), map(user => {
-      return user !== undefined && !this.accountService.hasReadOnlyRole(user) && (!this.accountService.hasAdminRole(user) && this.accountService.hasChangeAgeRestrictionRole(user));
-    }));
-    this.cdRef.markForCheck();
   }
 
   updateRestrictionSelection(restriction: AgeRestriction) {
     this.selectedRestriction = restriction;
-
-    this.saveForm();
   }
 
   resetForm() {
-    if (!this.user) return;
-    this.reset.emit(this.originalRestriction);
-    this.cdRef.markForCheck();
+    if (!this.accountService.currentUser()) return;
+    this.resetValue.set({...this.originalRestriction});
   }
 
   saveForm() {
-    if (this.user === undefined) { return; }
+    if (this.accountService.currentUser() === undefined) { return; }
 
     this.accountService.updateAgeRestriction(this.selectedRestriction.ageRating, this.selectedRestriction.includeUnknowns).subscribe(() => {
       this.toastr.success(translate('toasts.age-restriction-updated'));
       this.originalRestriction = this.selectedRestriction;
-      if (this.user) {
-        this.user.ageRestriction.ageRating = this.selectedRestriction.ageRating;
-        this.user.ageRestriction.includeUnknowns = this.selectedRestriction.includeUnknowns;
+
+      const currentUser = this.accountService.currentUser();
+      if (currentUser) {
+        currentUser.ageRestriction.ageRating = this.selectedRestriction.ageRating;
+        currentUser.ageRestriction.includeUnknowns = this.selectedRestriction.includeUnknowns;
       }
       this.resetForm();
-      this.isViewMode = true;
-      this.cdRef.markForCheck();
-    }, err => {
-
     });
   }
 
-  updateEditMode(mode: boolean) {
-    this.isViewMode = !mode;
-    this.resetForm();
-    this.cdRef.markForCheck();
-  }
+  protected readonly AgeRating = AgeRating;
 
 }

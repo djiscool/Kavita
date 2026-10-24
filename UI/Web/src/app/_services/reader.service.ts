@@ -1,8 +1,8 @@
 import {HttpClient} from '@angular/common/http';
-import {DestroyRef, inject, Injectable} from '@angular/core';
+import {effect, inject, Injectable, signal} from '@angular/core';
 import {DOCUMENT, Location} from '@angular/common';
 import {Router} from '@angular/router';
-import {environment} from 'src/environments/environment';
+import {environment} from '../../environments/environment';
 import {ChapterInfo} from '../manga-reader/_models/chapter-info';
 import {Chapter} from '../_models/chapter';
 import {HourEstimateRange} from '../_models/series-detail/hour-estimate-range';
@@ -14,34 +14,50 @@ import {FileDimension} from '../manga-reader/_models/file-dimension';
 import screenfull from 'screenfull';
 import {TextResonse} from '../_types/text-response';
 import {AccountService} from './account.service';
-import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {PersonalToC} from "../_models/readers/personal-toc";
 import {FilterV2} from "../_models/metadata/v2/filter-v2";
 import NoSleep from 'nosleep.js';
-import {FullProgress} from "../_models/readers/full-progress";
 import {Volume} from "../_models/volume";
-import {UtilityService} from "../shared/_services/utility.service";
 import {translate} from "@jsverse/transloco";
-import {ToastrService} from "ngx-toastr";
-import {FilterField} from "../_models/metadata/v2/filter-field";
+import {ToastrService} from '@openng/ngx-toastr';
+import {SeriesFilterField} from "../_models/metadata/v2/series-filter-field";
+import {ModalService, TypedModalRef} from "./modal.service";
+import {catchError, map, merge, Observable, of, switchMap, tap} from "rxjs";
+import {ListSelectModalComponent} from "../shared/_components/list-select-modal/list-select-modal.component";
+import {take, takeUntil} from "rxjs/operators";
+import {SeriesService} from "./series.service";
+import {Series} from "../_models/series";
+import {RereadPrompt} from "../_models/readers/reread-prompt";
+import {mediumModal} from "../_models/modal/modal-options";
+import {
+  KeyboardShortcut,
+  ShortcutsModalComponent
+} from "../reader-shared/_modals/shortcuts-modal/shortcuts-modal.component";
 
+enum RereadPromptResult {
+  Cancel = 0,
+  Reread = 1,
+  ReadIncognito = 3,
+  Continue = 4,
+}
 
 export const CHAPTER_ID_DOESNT_EXIST = -1;
 export const CHAPTER_ID_NOT_FETCHED = -2;
+
 
 @Injectable({
   providedIn: 'root'
 })
 export class ReaderService {
 
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly utilityService = inject(UtilityService);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
   private readonly accountService = inject(AccountService);
   private readonly toastr = inject(ToastrService);
   private readonly httpClient = inject(HttpClient);
   private readonly document = inject(DOCUMENT);
+  private readonly modalService = inject(ModalService);
+  private readonly seriesService = inject(SeriesService);
 
   baseUrl = environment.apiUrl;
   encodedKey: string = '';
@@ -51,13 +67,39 @@ export class ReaderService {
 
 
   private noSleep: NoSleep = new NoSleep();
+  shortCutModalOpen = signal(false);
+  shortCutModalRef: TypedModalRef<ShortcutsModalComponent> | undefined;
+
+
 
   constructor() {
-      this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(user => {
-        if (user) {
-          this.encodedKey = encodeURIComponent(user.apiKey);
-        }
-      });
+    effect(() => {
+      const apiKey = this.accountService.currentUserGenericApiKey();
+      if (apiKey) {
+        this.encodedKey = encodeURIComponent(apiKey);
+      }
+    })
+  }
+
+  openShortcutModal(shortcuts: KeyboardShortcut[], inBookReader: boolean = false) {
+    if (this.shortCutModalOpen()) return;
+
+    this.shortCutModalOpen.set(true);
+    this.shortCutModalRef = this.modalService.open(ShortcutsModalComponent, mediumModal());
+    this.shortCutModalRef.setInput('shortcuts', shortcuts);
+    this.shortCutModalRef.setInput('inBookReader', inBookReader);
+
+    merge(this.shortCutModalRef.closed, this.shortCutModalRef.dismissed).subscribe(() => this.shortCutModalOpen.set(false));
+  }
+
+  closeShortCutModal() {
+    const isOpen = !!this.shortCutModalRef;
+    if (this.shortCutModalRef) {
+      this.shortCutModalRef.dismiss();
+      this.shortCutModalRef = undefined;
+    }
+    this.shortCutModalOpen.set(false);
+    return isOpen;
   }
 
 
@@ -110,7 +152,7 @@ export class ReaderService {
     return this.httpClient.post(this.baseUrl + 'reader/unbookmark', {seriesId, volumeId, chapterId, page, imageNumber});
   }
 
-  getAllBookmarks(filter: FilterV2<FilterField> | undefined) {
+  getAllBookmarks(filter: FilterV2<SeriesFilterField> | undefined) {
     return this.httpClient.post<PageBookmark[]>(this.baseUrl + 'reader/all-bookmarks', filter);
   }
 
@@ -169,24 +211,24 @@ export class ReaderService {
     return this.httpClient.post(this.baseUrl + 'reader/progress', {libraryId, seriesId, volumeId, chapterId, pageNum: page, bookScrollId});
   }
 
-  getAllProgressForChapter(chapterId: number) {
-    return this.httpClient.get<Array<FullProgress>>(this.baseUrl + 'reader/all-chapter-progress?chapterId=' + chapterId);
+  markChapterRead(seriesId: number, chapterId: number, generateReadingSession: boolean = false) {
+    return this.httpClient.post(this.baseUrl + 'reader/mark-chapter-read', {seriesId, chapterId, generateReadingSession});
   }
 
-  markVolumeRead(seriesId: number, volumeId: number) {
-    return this.httpClient.post(this.baseUrl + 'reader/mark-volume-read', {seriesId, volumeId});
+  markVolumeRead(seriesId: number, volumeId: number, generateReadingSession: boolean = false) {
+    return this.httpClient.post(this.baseUrl + 'reader/mark-volume-read', {seriesId, volumeId, generateReadingSession});
   }
 
-  markMultipleRead(seriesId: number, volumeIds: Array<number>,  chapterIds?: Array<number>) {
-    return this.httpClient.post(this.baseUrl + 'reader/mark-multiple-read', {seriesId, volumeIds, chapterIds});
+  markMultipleRead(seriesId: number, volumeIds: Array<number>,  chapterIds?: Array<number>, generateReadingSession: boolean = false) {
+    return this.httpClient.post(this.baseUrl + 'reader/mark-multiple-read', {seriesId, volumeIds, chapterIds, generateReadingSession});
   }
 
   markMultipleUnread(seriesId: number, volumeIds: Array<number>,  chapterIds?: Array<number>) {
     return this.httpClient.post(this.baseUrl + 'reader/mark-multiple-unread', {seriesId, volumeIds, chapterIds});
   }
 
-  markMultipleSeriesRead(seriesIds: Array<number>) {
-    return this.httpClient.post(this.baseUrl + 'reader/mark-multiple-series-read', {seriesIds});
+  markMultipleSeriesRead(seriesIds: Array<number>, generateReadingSession: boolean = false) {
+    return this.httpClient.post(this.baseUrl + 'reader/mark-multiple-series-read', {seriesIds, generateReadingSession});
   }
 
   markMultipleSeriesUnread(seriesIds: Array<number>) {
@@ -226,6 +268,10 @@ export class ReaderService {
 
   getTimeLeftForChapter(seriesId: number, chapterId: number) {
     return this.httpClient.get<HourEstimateRange>(this.baseUrl + `reader/time-left-for-chapter?seriesId=${seriesId}&chapterId=${chapterId}`);
+  }
+
+  getFirstProgressDateForUser(userId: number) {
+    return this.httpClient.get<Date>(this.baseUrl + 'reader/first-progress-date?userId=' + userId);
   }
 
   /**
@@ -297,19 +343,32 @@ export class ReaderService {
     return params;
   }
 
-  toggleFullscreen(el: Element, callback?: VoidFunction) {
-
+  toggleFullscreen() {
+    const curr = screenfull.isFullscreen;
     if (screenfull.isEnabled) {
       screenfull.toggle();
+      return !curr;
+    }
+
+    return false;
+  }
+
+  setFullscreen(fullscreen: boolean) {
+    if (!screenfull.isEnabled) return;
+
+    if (fullscreen && !screenfull.isFullscreen) {
+      screenfull.toggle().catch(console.error);
+      return;
+    }
+    if (!fullscreen && screenfull.isFullscreen) {
+      screenfull.toggle().catch(console.error);
     }
   }
 
-  /**
-   *
-   * @returns If document is in fullscreen mode
-   */
-  checkFullscreenMode() {
-    return document.fullscreenElement != null;
+  exitFullscreen() {
+    if (screenfull.isEnabled) {
+      screenfull.exit();
+    }
   }
 
   /**
@@ -589,20 +648,34 @@ export class ReaderService {
     return parentPath ? `${parentPath}/${currentPath}` : currentPath;
   }
 
-  readVolume(libraryId: number, seriesId: number, volume: Volume, incognitoMode: boolean = false) {
-    if (volume.pagesRead < volume.pages && volume.pagesRead > 0) {
-      // Find the continue point chapter and load it
-      const unreadChapters = volume.chapters.filter(item => item.pagesRead < item.pages);
-      if (unreadChapters.length > 0) {
-        this.readChapter(libraryId, seriesId, unreadChapters[0], incognitoMode);
-        return;
-      }
-      this.readChapter(libraryId, seriesId, volume.chapters[0], incognitoMode);
-      return;
-    }
+  private shouldPromptForSeriesReread(seriesId: number, libraryId: number) {
+    return this.httpClient.get<RereadPrompt>(this.baseUrl + `reader/prompt-reread/series?seriesId=${seriesId}&libraryId=${libraryId}`);
+  }
 
-    // Sort the chapters, then grab first if no reading progress
-    this.readChapter(libraryId, seriesId, [...volume.chapters].sort(this.utilityService.sortChapters)[0], incognitoMode);
+  private shouldPromptForVolumeReread(libraryId: number, seriesId: number, volumeId: number) {
+    return this.httpClient.get<RereadPrompt>(this.baseUrl + `reader/prompt-reread/volume?libraryId=${libraryId}&seriesId=${seriesId}&volumeId=${volumeId}`);
+  }
+
+  private shouldPromptForChapterReread(libraryId: number, seriesId: number, chapterId: number) {
+    return this.httpClient.get<RereadPrompt>(this.baseUrl + `reader/prompt-reread/chapter?libraryId=${libraryId}&seriesId=${seriesId}&chapterId=${chapterId}`);
+  }
+
+  readSeries(series: Series, incognitoMode: boolean = false) {
+    const fullSeriesReread = this.seriesService.markUnread(series.id);
+
+    this.shouldPromptForSeriesReread(series.id, series.libraryId).pipe(
+      switchMap(prompt => this.handlePrompt(prompt, incognitoMode)),
+      tap(res => this.handlePromptResult(res, fullSeriesReread)),
+    ).subscribe();
+  }
+
+  readVolume(libraryId: number, seriesId: number, volume: Volume, incognitoMode: boolean = false) {
+    const fullVolumeReread = this.markVolumeUnread(seriesId, volume.id);
+
+    this.shouldPromptForVolumeReread(libraryId, seriesId, volume.id).pipe(
+      switchMap(prompt => this.handlePrompt(prompt, incognitoMode)),
+      tap(res => this.handlePromptResult(res, fullVolumeReread)),
+    ).subscribe()
   }
 
   readChapter(libraryId: number, seriesId: number, chapter: Chapter, incognitoMode: boolean = false) {
@@ -611,8 +684,74 @@ export class ReaderService {
       return;
     }
 
-    this.router.navigate(this.getNavigationArray(libraryId, seriesId, chapter.id, chapter.files[0].format),
-      {queryParams: {incognitoMode}});
+    this.shouldPromptForChapterReread(libraryId, seriesId, chapter.id).pipe(
+      switchMap(prompt => this.handlePrompt(prompt, incognitoMode)),
+      tap(res => this.handlePromptResult(res)),
+    ).subscribe()
+  }
+
+  private handlePromptResult({prompt, result}: {prompt: RereadPrompt, result: RereadPromptResult}, markUnreadFull?: Observable<any>) {
+    if (result == RereadPromptResult.Cancel) return;
+
+    if (result === RereadPromptResult.Continue || result === RereadPromptResult.ReadIncognito) {
+      const chapter = prompt.chapterOnContinue;
+      const useIncognitoMode = result === RereadPromptResult.ReadIncognito;
+
+      this.router.navigate(
+        this.getNavigationArray(chapter.libraryId, chapter.seriesId, chapter.chapterId, chapter.format),
+        { queryParams: { incognitoMode: useIncognitoMode } }
+      ).catch(err => console.error(err));
+      return;
+    }
+
+    const chapter = prompt.chapterOnReread;
+
+    const unRead = (prompt.fullReread && markUnreadFull) ? markUnreadFull : this.saveProgress(
+      chapter.libraryId, chapter.seriesId, chapter.volumeId, chapter.chapterId, 0
+    );
+
+    unRead.subscribe(() => this.router.navigate(
+      this.getNavigationArray(chapter.libraryId, chapter.seriesId, chapter.chapterId, chapter.format)
+    ).catch(err => console.error(err)));
+  }
+
+  private handlePrompt(prompt: RereadPrompt, incognitoMode: boolean) {
+    if (incognitoMode) return of({prompt: prompt, result: RereadPromptResult.ReadIncognito});
+
+    if (!prompt.shouldPrompt) return of({prompt: prompt, result: RereadPromptResult.Continue});
+
+
+    const ref = this.modalService.open<ListSelectModalComponent<RereadPromptResult>>(ListSelectModalComponent, mediumModal());
+
+    ref.setInput('showFooter', false);
+    ref.setInput('title', translate('reread-modal.title'));
+
+    if (prompt.timePrompt) {
+      ref.setInput('description', translate('reread-modal.description-time-passed',
+        { days: prompt.daysSinceLastRead, name: prompt.chapterOnReread.label }))
+    } else {
+      ref.setInput('description', translate('reread-modal.description-full-read', { name: prompt.chapterOnReread.label }))
+    }
+
+    const options = [
+      {label: translate('reread-modal.reread'), value: RereadPromptResult.Reread},
+      {label: translate('reread-modal.continue'), value: RereadPromptResult.Continue},
+    ];
+
+    if (!prompt.timePrompt) {
+      options.push({label: translate('reread-modal.read-incognito'), value: RereadPromptResult.ReadIncognito});
+    }
+
+    options.push({label: translate('reread-modal.cancel'), value: RereadPromptResult.Cancel});
+
+    ref.setInput('inputItems', options);
+
+    return ref.closed.pipe(
+      takeUntil(ref.dismissed),
+      take(1),
+      map(res => ({prompt: prompt, result: res as RereadPromptResult})),
+      catchError(() => of({prompt: prompt, result: RereadPromptResult.Cancel}))
+    );
   }
 
 }

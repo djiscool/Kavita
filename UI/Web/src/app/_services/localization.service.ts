@@ -1,7 +1,7 @@
 import {inject, Injectable} from '@angular/core';
 import {environment} from "../../environments/environment";
-import { HttpClient } from "@angular/common/http";
-import {KavitaLocale, Language} from "../_models/metadata/language";
+import {HttpClient} from "@angular/common/http";
+import {KavitaLocale} from "../_models/metadata/language";
 import {ReplaySubject, tap} from "rxjs";
 import {TranslocoService} from "@jsverse/transloco";
 
@@ -9,6 +9,8 @@ import {TranslocoService} from "@jsverse/transloco";
   providedIn: 'root'
 })
 export class LocalizationService {
+  private httpClient = inject(HttpClient);
+
 
   private readonly translocoService = inject(TranslocoService);
 
@@ -17,20 +19,20 @@ export class LocalizationService {
   private readonly localeSubject = new ReplaySubject<KavitaLocale[]>(1);
   public readonly locales$ = this.localeSubject.asObservable();
 
-  constructor(private httpClient: HttpClient) { }
-
   getLocales() {
     return this.httpClient.get<KavitaLocale[]>(this.baseUrl + 'locale').pipe(tap(locales => {
       this.localeSubject.next(locales);
     }));
   }
 
-  refreshTranslations(lang: string) {
+  refreshTranslations(newLang: string) {
 
     // Clear the cached translation
-    localStorage.removeItem(`@@TRANSLOCO_PERSIST_TRANSLATIONS/${lang}`);
+    localStorage.removeItem(`@transloco/translations`);
+    localStorage.removeItem(`@transloco/translations/timestamp`);
 
     // Reload the translation
-    return this.translocoService.load(lang);
+    this.translocoService.setActiveLang(newLang);
+    return this.translocoService.load(newLang);
   }
 }

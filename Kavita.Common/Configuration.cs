@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Kavita.Common.EnvironmentInfo;
 using Kavita.Common.Helpers;
 using Microsoft.Extensions.Hosting;
@@ -19,9 +20,22 @@ public static class Configuration
     public const string DefaultOidcClientId = "kavita";
     private static readonly string AppSettingsFilename = Path.Join("config", GetAppSettingFilename());
 
-    public static readonly string KavitaPlusApiUrl = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == Environments.Development
-        ?  "http://localhost:5020" : "https://plus.kavitareader.com";
-    public static readonly string StatsApiUrl = "https://stats.kavitareader.com";
+    public static readonly string KavitaPlusApiUrl = GetKavitaPlusApiUrl();
+    public const string StatsApiUrl = "https://stats.kavitareader.com";
+
+
+    private static string GetKavitaPlusApiUrl()
+    {
+        var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var isDevelopment = environment == Environments.Development;
+
+        if (isDevelopment && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KAVITAPLUS_PROD")))
+        {
+            return "http://localhost:5020";
+        }
+
+        return "https://plus.kavitareader.com";
+    }
 
     public static int Port
     {
@@ -374,6 +388,8 @@ public static class Configuration
         // ReSharper disable once MemberHidesStaticFromOuterClass
         public bool AllowIFraming { get; init; } = false;
         public OpenIdConnectSettings OpenIdConnectSettings { get; set; } = new();
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> ExtensionData { get; set; }
 #pragma warning restore S3218
     }
 
